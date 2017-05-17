@@ -1,0 +1,9 @@
+rm -rf store1/db
+rm -rf store1/tikv_server
+rm -rf store1/tikv_serve.log
+rm -rf store2/db
+rm -rf store2/tikv_server
+rm -rf store2/tikv_server.log
+rm -rf store3/db
+rm -rf store3/tikv_server
+rm -rf store3/tikv_server.log

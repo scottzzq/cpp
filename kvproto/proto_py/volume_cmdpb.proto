@@ -1,0 +1,26 @@
+syntax = "proto2";
+package volume_cmdpb;
+
+message AddRequest {
+    optional uint64 count  = 1;
+}
+
+message AddResponse {
+    repeated uint64 volume_ids = 1;
+}
+
+
+enum CmdType {
+    Invalid     = 0;
+    Add         = 1;
+}
+
+message Request {
+    optional CmdType        cmd_type    = 1;
+    optional AddRequest     add         = 2;
+}
+
+message Response {
+    optional CmdType        cmd_type    = 1;
+    optional AddResponse    add         = 2;
+}
