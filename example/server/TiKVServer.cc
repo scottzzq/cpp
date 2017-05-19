@@ -27,7 +27,7 @@ TiKVServer::TiKVServer(muduo::net::EventLoop* loop,
 
 void TiKVServer::onProtobufMessage(const muduo::net::TcpConnectionPtr& conn,
 		const MessagePtr& message,
-		muduo::Timestamp receiveTime) const {
+		muduo::Timestamp receiveTime){
 	boost::shared_ptr<msgpb::Message> msg = muduo::down_pointer_cast<msgpb::Message>(message);
 	LOG_INFO << "TiKVServer::onProtobufMessage";
 	LOG_INFO << "\n" << msg->DebugString();
@@ -36,7 +36,7 @@ void TiKVServer::onProtobufMessage(const muduo::net::TcpConnectionPtr& conn,
 			store_router_->on_raft_message(msg->raft());
 			break;
 		case msgpb::MessageType::Cmd:
-			store_router_->on_command_message(msg->cmd_req());
+			store_router_->on_command_message(msg->cmd_req(), boost::bind(&TiKVServer::response_callback, this, conn, _1));
 			break;
 		case msgpb::MessageType::KvReq:
 		default:
@@ -59,11 +59,11 @@ void TiKVServer::sendToStore(uint64_t store_id, msgpb::Message msg){
 		return;
 	}
 	muduo::net::InetAddress serverAddr;
-	if (store_id == 4){
+	if (store_id == 1){
 		serverAddr = muduo::net::InetAddress("127.0.0.1", 1234);
-	} else if(store_id == 5){
+	} else if(store_id == 2){
 		serverAddr = muduo::net::InetAddress("127.0.0.1", 1235);
-	} else if(store_id == 6){
+	} else if(store_id == 3){
 		serverAddr = muduo::net::InetAddress("127.0.0.1", 1236);
 	}
 	StoreClient* client = new StoreClient(store_id, this, loop_, serverAddr);

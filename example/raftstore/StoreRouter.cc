@@ -184,9 +184,9 @@ void StoreRouter::on_raft_message(const raft_serverpb::RaftMessage& raft){
 	cur_store->runInLoop(boost::bind(&Store::on_raft_message, cur_store, raft));
 }
 
-void StoreRouter::on_command_message(const raft_cmdpb::RaftCmdRequest& cmd){
+void StoreRouter::on_command_message(const raft_cmdpb::RaftCmdRequest& cmd, ResponseCallback callback){
 	uint64_t range_id = cmd.header().region_id();
 	Store* cur_store = stores_[range_id % stores_.size()];
-	cur_store->runInLoop(boost::bind(&Store::on_command_message, cur_store, cmd));
+	cur_store->runInLoop(boost::bind(&Store::on_command_message, cur_store, cmd, callback));
 }
 

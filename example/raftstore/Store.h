@@ -5,6 +5,7 @@
 #include <muduo/net/EventLoop.h>
 #include <muduo/net/EventLoopThread.h>
 #include "metapb.pb.h"
+#include "msgpb.pb.h"
 
 #include "raft_serverpb.pb.h"
 #include "raft_cmdpb.pb.h"
@@ -15,6 +16,7 @@ class TiKVServer;
 class Store{
 	public:
 		typedef boost::function<void()> Functor;
+		typedef boost::function<void(msgpb::Message message)>  ResponseCallback;
 
 		Store(TiKVServer* server, uint64_t store_id);
 		~Store();
@@ -29,7 +31,7 @@ class Store{
 		}
 
 		void on_raft_message(const raft_serverpb::RaftMessage raft);	
-		void on_command_message(const raft_cmdpb::RaftCmdRequest& cmd);
+		void on_command_message(const raft_cmdpb::RaftCmdRequest& cmd, ResponseCallback callback);
 
 		void runInLoop(const Functor& cb){
 			loop_->runInLoop(cb);

@@ -8,6 +8,7 @@
 #include "raft_serverpb.pb.h"
 #include "raft_cmdpb.pb.h"
 #include "metapb.pb.h"
+#include "msgpb.pb.h"
 #include "rocksdb/db.h"
 #include "TiKVConf.h"
 
@@ -15,11 +16,12 @@ class TiKVServer;
 
 class StoreRouter{
 	public:
+		typedef boost::function<void(msgpb::Message message)>  ResponseCallback;
 		StoreRouter(TiKVServer* server, int store_num);
 		~StoreRouter();
 		bool init();
 		void on_raft_message(const raft_serverpb::RaftMessage& raft);	
-		void on_command_message(const raft_cmdpb::RaftCmdRequest& cmd);
+		void on_command_message(const raft_cmdpb::RaftCmdRequest& cmd, ResponseCallback callback);
 	private:
 		StoreRouter(const StoreRouter& s);
 		StoreRouter& operator=(const StoreRouter& s);

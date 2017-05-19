@@ -55,7 +55,7 @@ void Store::on_raft_message(const raft_serverpb::RaftMessage raft){
 	}
 }
 
-void Store::on_command_message(const raft_cmdpb::RaftCmdRequest& cmd){
+void Store::on_command_message(const raft_cmdpb::RaftCmdRequest& cmd, ResponseCallback callback){
 
 }
 

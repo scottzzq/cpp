@@ -19,9 +19,7 @@
 #include "StoreRouter.h"
 
 class StoreClient;
-
-typedef boost::function<void(TiKVServer* server, 
-		const muduo::net::TcpConnectionPtr conn, msgpb::Message message)> RaftCmdCallback;
+class TiKVServer;
 
 class TiKVServer : boost::noncopyable {
 	public:
@@ -31,7 +29,7 @@ class TiKVServer : boost::noncopyable {
 
 		void onProtobufMessage(const muduo::net::TcpConnectionPtr& conn,
 				const MessagePtr& message,
-				muduo::Timestamp receiveTime) const;
+				muduo::Timestamp receiveTime);
 
 		void response_callback(const muduo::net::TcpConnectionPtr conn, msgpb::Message message){
 			codec_.send(conn, message);
@@ -46,6 +44,7 @@ class TiKVServer : boost::noncopyable {
 		void runInLoop(const Functor& cb){
 			loop_->runInLoop(cb);
 		}
+		void sendRaftResponse(const muduo::net::TcpConnectionPtr conn, msgpb::Message message);
 	private:
 		void onConnection(const muduo::net::TcpConnectionPtr& conn) {
 			LOG_INFO << conn->localAddress().toIpPort() << " -> "

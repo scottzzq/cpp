@@ -216,7 +216,7 @@ void Peer::send_raft_message(eraftpb::Message& msg){
 	from_p->CopyFrom(from_peer);
 	to_p->CopyFrom(to_peer);	
 	LOG_INFO << "Peer::send_raft_message: " << send_msg.DebugString();
-	this->store->get_server()->runInLoop(boost::bind(&TiKVServer::sendToStore, this->store->get_server(), to_peer_id, send_msg));
+	this->store->get_server()->runInLoop(boost::bind(&TiKVServer::sendToStore, this->store->get_server(), to_store_id, send_msg));
 }
 
 bool Peer::is_leader(){

@@ -39,6 +39,30 @@ void write_initial_state(rocksdb::DB* db, rocksdb::WriteBatch& w , uint64_t regi
 	delete []apply_state_buffer;
 }
 
+InvokeContext::InvokeContext(PeerStorage* store) {
+	this->raft_state = store->get_raft_state();
+	this->apply_state = store->get_apply_state();
+	this->last_term = store->get_last_term();
+}
+
+void InvokeContext::save_raft(uint64_t region_id) {
+	int raft_state_msg_size = this->raft_state.ByteSize();
+	char* raft_state_buffer = new char[raft_state_msg_size + 1];
+	raft_state_buffer[raft_state_msg_size] = '\0';
+	raft_state.SerializeToArray(raft_state_buffer, raft_state_msg_size);
+	this->wb.Put(raft_state_key(region_id), raft_state_buffer);
+	delete []raft_state_buffer;
+}
+
+void InvokeContext::save_apply(uint64_t region_id)  {
+	int apply_state_msg_size = this->apply_state.ByteSize();
+	char* apply_state_buffer = new char[apply_state_msg_size + 1];
+	apply_state_buffer[apply_state_msg_size] = '\0';
+	apply_state.SerializeToArray(apply_state_buffer, apply_state_msg_size);
+	this->wb.Put(apply_state_key(region_id), apply_state_buffer);
+	delete []apply_state_buffer;
+}
+
 RaftState PeerStorage::initial_state(){
 	//message HardState {
 	//	optional uint64 term   = 1; 
@@ -200,9 +224,10 @@ PeerStorage::PeerStorage(rocksdb::DB* db_, metapb::Region region_) :
 		en.set_term(RAFT_INIT_LOG_TERM);
 		ents.push_back(en);
 	}
-	rocksdb::WriteBatch wb;
-	this->append(ents, wb);
-	auto s = db->Write(rocksdb::WriteOptions(), &wb);
+	
+	InvokeContext ctx(this);
+	this->append(ctx, ents);
+	auto s = db->Write(rocksdb::WriteOptions(), &ctx.wb);
 	assert(s.ok());
 }
 
@@ -212,9 +237,9 @@ PeerStorage::~PeerStorage(){
 void PeerStorage::handle_raft_ready(Ready& ready){
 	LOG_INFO << "PeerStorage::handle_raft_ready, entries_size:" << ready.entries.size();
 	if (!ready.entries.empty()){
-		rocksdb::WriteBatch wb;
-		this->append(ready.entries, wb);
-		auto s = db->Write(rocksdb::WriteOptions(), &wb);
+		InvokeContext ctx(this);
+		this->append(ctx, ready.entries);
+		auto s = db->Write(rocksdb::WriteOptions(), &ctx.wb);
 		assert(s.ok());
 	}
 }
@@ -281,8 +306,11 @@ int PeerStorage::check_range(uint64_t low, uint64_t high) const {
 // Append the given entries to the raft log using previous last index or self.last_index.
 // Return the new last index for later update. After we commit in engine, we can set last_index
 // to the return one.
-void PeerStorage::append(std::vector<eraftpb::Entry>& entries, rocksdb::WriteBatch& wb){
+//
+void PeerStorage::append(InvokeContext& ctx, std::vector<eraftpb::Entry>& entries){
 	LOG_INFO << " PeerStorage::append, " << entries.size();
+	uint64_t prev_last_index = ctx.raft_state.last_index();
+
 	if (entries.empty()) {
 		return;
 	}
@@ -297,10 +325,21 @@ void PeerStorage::append(std::vector<eraftpb::Entry>& entries, rocksdb::WriteBat
 		char* entry_buffer = new char[entry_msg_size + 1];
 		entry_buffer[entry_msg_size] = '\0';
 		e.SerializeToArray(entry_buffer, entry_msg_size);
-		wb.Put(raft_log_key(this->get_region_id(), e.index()), entry_buffer);
+		ctx.wb.Put(raft_log_key(this->get_region_id(), e.index()), entry_buffer);
 		LOG_INFO << "append raftlog:[" << e.index() << "]" << " size:" << entry_msg_size;
 		delete []entry_buffer;
 	}
+
+	let last_index = e.get_index();
+        let last_term = e.get_term();
+
+        // Delete any previously appended log entries which never committed.
+        for i in (last_index + 1)..(prev_last_index + 1) {
+            try!(ctx.wb.delete_cf(handle, &keys::raft_log_key(self.get_region_id(), i)));
+        }
+
+        ctx.raft_state.set_last_index(last_index);
+        ctx.last_term = last_term;
 
 	if (this->raft_state.last_index() < e_last_index){
 		this->raft_state.set_last_index(e_last_index);
@@ -315,7 +354,7 @@ void PeerStorage::append(std::vector<eraftpb::Entry>& entries, rocksdb::WriteBat
 	raft_state_buffer[raft_state_msg_size] = '\0';
 	this->raft_state.SerializeToArray(raft_state_buffer, raft_state_msg_size);
 
-	wb.Put(raft_state_key(this->get_region_id()), std::string(raft_state_buffer));
+	ctx.wb.Put(raft_state_key(this->get_region_id()), std::string(raft_state_buffer));
 	LOG_INFO << "raft_state: size:" << raft_state_msg_size;
 	LOG_INFO << "PeerStorage::append, raft_state:" << this->raft_state.DebugString();
 	delete []raft_state_buffer;
