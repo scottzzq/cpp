@@ -52,7 +52,6 @@ void TiKVServer::start() {
 }
 
 void TiKVServer::sendToStore(uint64_t store_id, msgpb::Message msg){
-	LOG_INFO << "Send store_id:[" << store_id << "]" << msg.DebugString();
 	auto it = this->store_map_.find(store_id);
 	if (it != this->store_map_.end()){
 		it->second->send(msg);

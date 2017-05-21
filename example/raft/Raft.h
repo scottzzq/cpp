@@ -22,6 +22,9 @@ struct SoftState {
 	StateRole raft_state;
 };
 
+bool operator != (const SoftState& lhs, const SoftState& rhs);
+
+bool operator == (const SoftState& lhs, const SoftState& rhs);
 
 class Storage;
 class Progress;
@@ -149,6 +152,10 @@ class Raft{
 
 		inline uint64_t get_term(){
 			return this->term;
+		}
+
+		inline uint64_t get_leader_id() const{
+			return this->leader_id;
 		}
 		/// lead_transferee is id of the leader transfer target when its value is not None.
 		/// Follow the procedure defined in raft thesis 3.10.

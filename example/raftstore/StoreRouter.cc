@@ -29,13 +29,15 @@ void write_region(rocksdb::DB* db, metapb::Region& region) {
 	if (value.size() == 0){
 		LOG_INFO << "write_region,write_initial_state";
 		write_initial_state(db, wb, region.id());
+
+		auto s = db->Write(rocksdb::WriteOptions(), &wb);
+		assert(s.ok());
+
+		LOG_INFO << "write_region:" << region.DebugString() << 
+			" key_len:" << region_state_key(region.id()).size() << " value_len:" << msg_size;
 	}
 
-	auto s = db->Write(rocksdb::WriteOptions(), &wb);
-	assert(s.ok());
 	delete []buffer;
-	LOG_INFO << "write_region:" << region.DebugString() << 
-		" key_len:" << region_state_key(region.id()).size() << " value_len:" << msg_size;
 }
 
 // Bootstrap first region.
@@ -138,7 +140,8 @@ bool StoreRouter::init(){
 		if (it->key().ToString() > end_key){
 			break;
 		}
-		std::tuple<uint64_t, char> region_tuple = decode_region_meta_key(std::string(it->key().data(), it->key().size()));
+		std::tuple<uint64_t, char> region_tuple = 
+			decode_region_meta_key(std::string(it->key().data(), it->key().size()));
 		assert(std::get<1>(region_tuple) == REGION_STATE_SUFFIX);
 		LOG_INFO << "decode region_id:" << std::get<0>(region_tuple); 
 		MessagePtr message;

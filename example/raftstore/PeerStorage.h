@@ -34,9 +34,7 @@ class PeerStorage: public MemStorage{
 	public:
 		PeerStorage(rocksdb::DB* db, metapb::Region region_);
 		virtual ~PeerStorage();
-		uint64_t applied_index(){
-			return 0;
-		}
+
 		metapb::Region get_region();
 		RaftState initial_state();
 		void handle_raft_ready(Ready& ready);
@@ -56,15 +54,43 @@ class PeerStorage: public MemStorage{
 			return this->region.id();
 		}
 		void append(InvokeContext& ctx, std::vector<eraftpb::Entry>& entries);
-		raft_serverpb::RaftLocalState get_raft_state() const{
-			return 	this->raft_state;
+
+		inline raft_serverpb::RaftLocalState get_raft_state() const{
+			return this->raft_state;
 		}
-		raft_serverpb::RaftApplyState get_apply_state() const{
+
+		inline void set_raft_state(raft_serverpb::RaftLocalState st) {
+			this->raft_state = st;
+		}
+
+		inline raft_serverpb::RaftApplyState get_apply_state() const{
 			return this->apply_state;
 		}
-		uint64_t get_last_term(){
+
+		inline void set_apply_state(raft_serverpb::RaftApplyState st){
+			this->apply_state = st;
+		}
+
+		inline uint64_t applied_index() {
+			return this->apply_state.applied_index();
+		}
+
+		inline uint64_t get_applied_index_term() const{
+			return applied_index_term;
+		}
+
+		inline void set_applied_index_term(uint64_t t){
+			this->applied_index_term = t;
+		}
+
+		inline uint64_t get_last_term(){
 			return last_term;
 		}
+
+		inline void set_last_term(uint64_t t){
+			this->last_term = t;
+		}
+
 		rocksdb::DB* get_db(){
 			return db;
 		}

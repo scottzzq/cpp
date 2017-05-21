@@ -4,6 +4,7 @@
 #include <string>
 #include "eraftpb.pb.h"
 #include "Unstable.h"
+#include "tikv_common.h"
 
 class Storage;
 

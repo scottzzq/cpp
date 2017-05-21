@@ -3,18 +3,7 @@
 
 #include <limits.h>
 #include <stdint.h>
-
-const uint64_t STORE_CAPACITY = INT_MAX;
-
-const uint64_t RAFT_BASE_TICK_INTERVAL = 1000;
-
-const uint64_t RAFT_HEARTBEAT_TICKS = 2;
-const uint64_t RAFT_ELECTION_TIMEOUT_TICKS = 5;
-//const uint64_t RAFT_ELECTION_TIMEOUT_TICKS = 10;
-
-const uint64_t RAFT_MAX_SIZE_PER_MSG = 1024 * 1024;
-const uint64_t RAFT_MAX_INFLIGHT_MSGS = 256;
-const uint64_t RAFT_ENTRY_MAX_SIZE = 8 * 1024 * 1024;
+#include "tikv_common.h"
 
 class Config {
 	public:

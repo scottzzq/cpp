@@ -16,7 +16,7 @@ class TiKVServer;
 
 class StoreRouter{
 	public:
-		typedef boost::function<void(msgpb::Message message)>  ResponseCallback;
+		typedef boost::function<void(const raft_cmdpb::RaftCmdResponse)>  ResponseCallback;
 		StoreRouter(TiKVServer* server, int store_num);
 		~StoreRouter();
 		bool init();

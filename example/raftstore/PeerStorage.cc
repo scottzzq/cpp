@@ -32,8 +32,8 @@ void write_initial_state(rocksdb::DB* db, rocksdb::WriteBatch& w , uint64_t regi
 	apply_state_buffer[apply_state_msg_size] = '\0';
 	apply_state.SerializeToArray(apply_state_buffer, apply_state_msg_size);
 
-	w.Put(raft_state_key(region_id), std::string(raft_state_buffer));
-	w.Put(apply_state_key(region_id), std::string(apply_state_buffer));
+	w.Put(raft_state_key(region_id), std::string(raft_state_buffer, raft_state_msg_size));
+	w.Put(apply_state_key(region_id), std::string(apply_state_buffer, apply_state_msg_size));
 
 	delete []raft_state_buffer;
 	delete []apply_state_buffer;
@@ -49,9 +49,10 @@ void InvokeContext::save_raft(uint64_t region_id) {
 	int raft_state_msg_size = this->raft_state.ByteSize();
 	char* raft_state_buffer = new char[raft_state_msg_size + 1];
 	raft_state_buffer[raft_state_msg_size] = '\0';
-	raft_state.SerializeToArray(raft_state_buffer, raft_state_msg_size);
+	this->raft_state.SerializeToArray(raft_state_buffer, raft_state_msg_size);
 	this->wb.Put(raft_state_key(region_id), raft_state_buffer);
 	delete []raft_state_buffer;
+	LOG_INFO << "InvokeContext::save_raft:" << this->raft_state.DebugString();
 }
 
 void InvokeContext::save_apply(uint64_t region_id)  {
@@ -61,6 +62,7 @@ void InvokeContext::save_apply(uint64_t region_id)  {
 	apply_state.SerializeToArray(apply_state_buffer, apply_state_msg_size);
 	this->wb.Put(apply_state_key(region_id), apply_state_buffer);
 	delete []apply_state_buffer;
+	LOG_INFO << "InvokeContext::save_apply:" << this->apply_state.DebugString();
 }
 
 RaftState PeerStorage::initial_state(){
@@ -70,9 +72,10 @@ RaftState PeerStorage::initial_state(){
 	//	optional uint64 commit = 3; 
 	//}
 	eraftpb::HardState hard_state;
-	hard_state.set_term(1);
+	hard_state.CopyFrom(this->raft_state.hard_state());
+	//hard_state.set_term(1);
 	//hard_state.set_vote(4);
-	hard_state.set_commit(5);
+	//hard_state.set_commit(5);
 
 	//message ConfState {
 	//	repeated uint64 nodes = 1;
@@ -123,6 +126,29 @@ raft_serverpb::RaftLocalState init_raft_state(rocksdb::DB* db, metapb::Region re
 	if (region.peers().size() > 0) {
 		raft_state.set_last_index(RAFT_INIT_LOG_INDEX);
 	}
+
+	rocksdb::WriteBatch wb;
+	//dev
+	std::vector<eraftpb::Entry> entries;
+	for(size_t i = 1; i <= RAFT_INIT_LOG_INDEX; ++i){
+		eraftpb::Entry en;
+		en.set_index(i);
+		en.set_term(RAFT_INIT_LOG_TERM);
+		entries.push_back(en);
+	}
+	for (size_t i = 0; i < entries.size(); ++i){
+		eraftpb::Entry e = entries[i];
+		int entry_msg_size = e.ByteSize();
+		char* entry_buffer = new char[entry_msg_size + 1];
+		entry_buffer[entry_msg_size] = '\0';
+		e.SerializeToArray(entry_buffer, entry_msg_size);
+		wb.Put(raft_log_key(region.id(), e.index()), entry_buffer);
+		LOG_INFO << "append raftlog:[" << e.index() << "]" << " size:" << entry_msg_size;
+		delete []entry_buffer;
+	}
+	s = db->Write(rocksdb::WriteOptions(), &wb);
+	assert(s.ok());
+
 	return raft_state;
 }
 
@@ -212,23 +238,12 @@ PeerStorage::PeerStorage(rocksdb::DB* db_, metapb::Region region_) :
 	db(db_),
 	region(region_){
 	this->raft_state = init_raft_state(db, region);
+	LOG_INFO << "PeerStorage::PeerStorage load raft_state:" << this->raft_state.DebugString();
 	this->apply_state = init_apply_state(db, region);
+	LOG_INFO << "PeerStorage::PeerStorage load apply_state:" << this->apply_state.DebugString();
 	this->last_term = init_last_term(db, region, raft_state, apply_state);
-
-	LOG_INFO << "PeerStorage::PeerStorage:" << this->raft_state.DebugString();
-
-	std::vector<eraftpb::Entry> ents;
-	for(size_t i = 1; i <= RAFT_INIT_LOG_INDEX; ++i){
-		eraftpb::Entry en;
-		en.set_index(i);
-		en.set_term(RAFT_INIT_LOG_TERM);
-		ents.push_back(en);
-	}
-	
-	InvokeContext ctx(this);
-	this->append(ctx, ents);
-	auto s = db->Write(rocksdb::WriteOptions(), &ctx.wb);
-	assert(s.ok());
+	LOG_INFO << "PeerStorage::PeerStorage load last_term:" << this->last_term;
+	LOG_INFO << "PeerStorage::PeerStorage:" << this->raft_state.DebugString();	
 }
 
 PeerStorage::~PeerStorage(){
@@ -236,21 +251,39 @@ PeerStorage::~PeerStorage(){
 
 void PeerStorage::handle_raft_ready(Ready& ready){
 	LOG_INFO << "PeerStorage::handle_raft_ready, entries_size:" << ready.entries.size();
+	InvokeContext ctx(this);
 	if (!ready.entries.empty()){
-		InvokeContext ctx(this);
 		this->append(ctx, ready.entries);
-		auto s = db->Write(rocksdb::WriteOptions(), &ctx.wb);
-		assert(s.ok());
 	}
+	// Last index is 0 means the peer is created from raft message
+	// and has not applied snapshot yet, so skip persistent hard state.
+	if (ctx.raft_state.last_index() > 0 ){
+		if (ready.hs) {
+			ctx.raft_state.mutable_hard_state()->CopyFrom(ready.hs.get());
+		}
+	}
+
+	if (ctx.raft_state.SerializeAsString() != this->raft_state.SerializeAsString()) {
+		ctx.save_raft(this->get_region_id());
+	}
+
+	if (ctx.apply_state.SerializeAsString() != this->apply_state.SerializeAsString()) {
+		ctx.save_apply(this->get_region_id());
+	}
+
+	auto s = db->Write(rocksdb::WriteOptions(), &ctx.wb);
+	assert(s.ok());
+
+	this->raft_state = ctx.raft_state;
+	this->apply_state = ctx.apply_state;
+	this->last_term = ctx.last_term;
 }
 
 uint64_t PeerStorage::first_index() const{
-	LOG_INFO << "PeerStorage::first_index:" << this->raft_state.DebugString();
 	return this->apply_state.truncated_state().index() + 1;
 }
 
 uint64_t PeerStorage::last_index() const {
-	LOG_INFO << "PeerStorage::last_index:" << this->raft_state.DebugString();
 	return this->raft_state.last_index();
 }
 
@@ -274,6 +307,7 @@ int PeerStorage::term(uint64_t idx, uint64_t& t) const{
 	}
 	if (this->truncated_term() == this->last_term || idx == this->last_index()) {
 		t = this->last_term;
+		LOG_INFO << "PeerStorage::term, idx:[" << idx << "] " << t;
 		return 0;
 	}
 	std::string key = raft_log_key(this->get_region_id(), idx);
@@ -285,9 +319,19 @@ int PeerStorage::term(uint64_t idx, uint64_t& t) const{
 		MessagePtr message;
 		message.reset(createMessage(typeName));
 		assert(message != NULL);
-		auto msg = muduo::down_pointer_cast<eraftpb::Entry>(message);
-		t = msg->term();
-		return 0;
+
+		const char* data = value.data();
+		int32_t dataLen = value.size();
+		if (message->ParseFromArray(data, dataLen)) {
+			auto msg = muduo::down_pointer_cast<eraftpb::Entry>(message);
+			t = msg->term();
+			LOG_INFO << "PeerStorage::term, idx:[" << idx << "] " << msg->DebugString();
+			return 0;
+		}else{
+			LOG_FATAL << "ParseFromArray Error";
+			exit(1);
+			return PTOTOBUG_PARSER_ERROR;
+		}
 	}
 	return STORAGE_ERROR_UNAVABLE;
 }
@@ -311,13 +355,11 @@ void PeerStorage::append(InvokeContext& ctx, std::vector<eraftpb::Entry>& entrie
 	LOG_INFO << " PeerStorage::append, " << entries.size();
 	uint64_t prev_last_index = ctx.raft_state.last_index();
 
+	LOG_INFO << "ctx.raft_state:" << ctx.raft_state.DebugString();
 	if (entries.empty()) {
 		return;
 	}
 	LOG_INFO << "PeerStorage::append," << entries[0].DebugString();
-	eraftpb::Entry last_e = entries[entries.size() - 1];
-	auto e_last_index = last_e.index();
-	auto e_last_term = last_e.term();
 
 	for (size_t i = 0; i < entries.size(); ++i){
 		eraftpb::Entry e = entries[i];
@@ -325,39 +367,23 @@ void PeerStorage::append(InvokeContext& ctx, std::vector<eraftpb::Entry>& entrie
 		char* entry_buffer = new char[entry_msg_size + 1];
 		entry_buffer[entry_msg_size] = '\0';
 		e.SerializeToArray(entry_buffer, entry_msg_size);
-		ctx.wb.Put(raft_log_key(this->get_region_id(), e.index()), entry_buffer);
-		LOG_INFO << "append raftlog:[" << e.index() << "]" << " size:" << entry_msg_size;
+		ctx.wb.Put(raft_log_key(this->get_region_id(), e.index()), std::string(entry_buffer, entry_msg_size));
+		LOG_INFO << "append raftlog:[" << e.index() << "]" << " entry size:" << entry_msg_size;
 		delete []entry_buffer;
 	}
 
-	let last_index = e.get_index();
-        let last_term = e.get_term();
+	eraftpb::Entry last_e = entries[entries.size() - 1];
+	auto e_last_index = last_e.index();
+	auto e_last_term = last_e.term();
 
-        // Delete any previously appended log entries which never committed.
-        for i in (last_index + 1)..(prev_last_index + 1) {
-            try!(ctx.wb.delete_cf(handle, &keys::raft_log_key(self.get_region_id(), i)));
-        }
-
-        ctx.raft_state.set_last_index(last_index);
-        ctx.last_term = last_term;
-
-	if (this->raft_state.last_index() < e_last_index){
-		this->raft_state.set_last_index(e_last_index);
+	// Delete any previously appended log entries which never committed.
+	for (uint64_t i = e_last_index + 1; i < prev_last_index + 1; ++i) {
+		ctx.wb.Delete(raft_log_key(this->get_region_id(), i));
+		LOG_INFO << "delete raftlog:[" << i << "]";
 	}
 
-	if (this->last_term  < e_last_term){
-		this->last_term = e_last_term;
-	}
-
-	int raft_state_msg_size = this->raft_state.ByteSize();
-	char* raft_state_buffer = new char[raft_state_msg_size + 1];
-	raft_state_buffer[raft_state_msg_size] = '\0';
-	this->raft_state.SerializeToArray(raft_state_buffer, raft_state_msg_size);
-
-	ctx.wb.Put(raft_state_key(this->get_region_id()), std::string(raft_state_buffer));
-	LOG_INFO << "raft_state: size:" << raft_state_msg_size;
-	LOG_INFO << "PeerStorage::append, raft_state:" << this->raft_state.DebugString();
-	delete []raft_state_buffer;
+    ctx.raft_state.set_last_index(e_last_index);
+    ctx.last_term = e_last_term;
 }
 
 int PeerStorage::entries(uint64_t low, uint64_t high, uint64_t max_size,
@@ -376,6 +402,7 @@ int PeerStorage::entries(uint64_t low, uint64_t high, uint64_t max_size,
 		std::string value;
 		this->db->Get(rocksdb::ReadOptions(), start_key, &value);
 		if (value.size() != 0){
+			LOG_INFO << "PeerStorage::entries, index:[" << low << "] value_size:[" << value.size() << "]";
 			//从rocksdb中获取
 			typedef eraftpb::Entry T;
 			std::string typeName = T::descriptor()->full_name();

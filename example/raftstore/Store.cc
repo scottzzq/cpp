@@ -6,10 +6,7 @@
 
 #include <sstream>
 #include <boost/bind.hpp>
-
-std::string get_uuid_from_req(const raft_cmdpb::RaftCmdRequest& msg){
-	return msg.header().uuid();
-}
+#include "tikv_common.h"
 
 Store::Store(TiKVServer* server_, uint64_t store_id): store_id_(store_id), server(server_){
 	region_peers.clear();
@@ -33,7 +30,7 @@ void Store::scheduleTask(){
 }
 
 void Store::threadInitFunc(muduo::net::EventLoop* loop_){
-	loop_->runEvery(1, boost::bind(&Store::scheduleTask, this));
+	loop_->runEvery(RAFT_BASE_TICK_INTERVAL * 0.001, boost::bind(&Store::scheduleTask, this));
 }
 
 void Store::add_peer(uint64_t region_id, Peer* p){
@@ -56,7 +53,7 @@ void Store::on_raft_message(const raft_serverpb::RaftMessage raft){
 }
 
 void Store::on_command_message(const raft_cmdpb::RaftCmdRequest& cmd, ResponseCallback callback){
-
+	this->propose_raft_command(cmd, callback);
 }
 
 bool Store::validate_store_id(const raft_cmdpb::RaftCmdRequest& msg) {
@@ -68,45 +65,56 @@ bool Store::validate_store_id(const raft_cmdpb::RaftCmdRequest& msg) {
 }
 
 bool Store::validate_region(const raft_cmdpb::RaftCmdRequest& msg) {
-	auto region_id = msg.header().region_id();
-	auto peer_id = msg.header().peer().id();
+	return true;
+	//auto region_id = msg.header().region_id();
+	//auto peer_id = msg.header().peer().id();
 
-	Peer* p = NULL;
-	auto it = this->region_peers.find(region_id);
-	if (it == this->region_peers.end()){
-		return false;
-	}
-	p = it->second;
-	if (!p->is_leader()) {
-		return false;
-	}
-	if (p->peer_id() != peer_id) {
-		return false;
-	}
+	//Peer* p = NULL;
+	//auto it = this->region_peers.find(region_id);
+	//if (it == this->region_peers.end()){
+	//	return false;
+	//}
+	//p = it->second;
+	//if (!p->is_leader()) {
+	//	return false;
+	//}
+	//if (p->peer_id() != peer_id) {
+	//	return false;
+	//}
 
-	auto header = msg.header();
-	// If header's term is 2 verions behind current term, leadership may have been changed away.
-	if (header.term() > 0 && p->term() > header.term() + 1) {
-		return false;
-	}
+	//auto header = msg.header();
+	//// If header's term is 2 verions behind current term, leadership may have been changed away.
+	//if (header.term() > 0 && p->term() > header.term() + 1) {
+	//	return false;
+	//}
 
-	return p->check_epoch(msg);
+	//return p->check_epoch(msg);
 }
 
-void Store::propose_raft_command(const raft_cmdpb::RaftCmdRequest& msg) {
-	LOG_INFO << "store propose_raft_command";
+void Store::propose_raft_command(const raft_cmdpb::RaftCmdRequest& msg, ResponseCallback callback) {
+	LOG_INFO << "store propose_raft_command:" << msg.DebugString();
 	std::string uuid = get_uuid_from_req(msg);
+	auto resp = raft_cmdpb::RaftCmdResponse();
 	if (uuid.size() == 0){
+		LOG_WARN << "uuid is null! RaftCmdRequest:" << msg.DebugString();
+		resp.mutable_header()->mutable_error()->set_message("missing request uuid");
+		callback(resp);
 	}else{
+		resp.mutable_header()->set_uuid(uuid);
 	}
+
 	if (!this->validate_store_id(msg)) {
+		resp.mutable_header()->mutable_error()->set_message("not validate store id");
 		LOG_WARN << "validate_store_id, is not validate store id";
+		callback(resp);
 		return;
 	}
 	LOG_INFO << "validate_store_id, is validate store id";
 
 	if (!this->validate_region(msg)) {
 		LOG_WARN << "validate_region, is not validate region id, ";
+		resp.mutable_header()->mutable_error()->set_message("not validate region id");
+		callback(resp);
 		return;
 	}
 	LOG_INFO << "validate_region, is validate region id";
@@ -117,8 +125,8 @@ void Store::propose_raft_command(const raft_cmdpb::RaftCmdRequest& msg) {
 	auto region_id = msg.header().region_id();
 	auto peer = this->region_peers[region_id];
 	auto term = peer->term();
-	struct PendingCmd pending_cmd = {uuid, term };
-	peer->propose(pending_cmd, msg);
+	struct PendingCmd pending_cmd = {uuid, term, callback };
+	peer->propose(pending_cmd, msg, resp);
 	//self.pending_raft_groups.insert(region_id);
 }
 

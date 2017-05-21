@@ -108,9 +108,22 @@ void RaftLog::commit_to(uint64_t to_commit) {
 	LOG_INFO << "RaftLog::commit_to:" << to_commit;
 }
 
-void RaftLog::applied_to(uint64_t to){
-
+void RaftLog::applied_to(uint64_t idx){
+	LOG_INFO << "committed:[" << this->committed << \
+		"] applied:[" << this->applied << "] idx:[" << idx << "]";
+	if (idx == 0) {
+		return;
+	}
+	if (this->committed < idx || idx < this->applied) {
+		LOG_FATAL << this->tag << "applied(" << idx << ") is out of range [prev_applied(" 
+			<< this->applied <<"), committed(" << this->committed <<")";
+		abort();
+		exit(1);
+	}
+	this->applied = idx;
+	LOG_INFO << "apply to:" << idx;
 }
+
 void RaftLog::stable_to(uint64_t idx, uint64_t term){
 	LOG_INFO << "RaftLog::stable_to, idx:[" << idx << "] term:[" << term << "]";
 	this->unstable->stable_to(idx, term);
@@ -160,9 +173,9 @@ uint64_t RaftLog::maybe_append(uint64_t idx,
 		} else if (conflict_idx <= this->committed ){
 			char log[1024];
 			snprintf(log, sizeof(log), "%s entry %lu conflict with committed entry %lu",
-			       this->tag.c_str(),
-			       conflict_idx,
-			       this->committed);
+					this->tag.c_str(),
+					conflict_idx,
+					this->committed);
 			LOG_FATAL << log;
 			exit(1);
 		} else {
@@ -199,10 +212,10 @@ uint64_t RaftLog::append(const google::protobuf::RepeatedPtrField<eraftpb::Entry
 	uint64_t after = ents.Get(start).index() - 1;
 	if (after < this->committed) {
 		char log[1024];
-	    snprintf(log, sizeof(log), "%s after %lu is out of range [committed %lu]",
-                   this->tag.c_str(),
-                   after,
-                   this->committed);
+		snprintf(log, sizeof(log), "%s after %lu is out of range [committed %lu]",
+				this->tag.c_str(),
+				after,
+				this->committed);
 		LOG_FATAL << log;
 	}
 	std::vector<eraftpb::Entry> ens;
@@ -284,7 +297,6 @@ std::vector<eraftpb::Entry> RaftLog::slice(uint64_t low, uint64_t high, uint64_t
 	return entries;
 }
 
-
 // is_up_to_date determines if the given (lastIndex,term) log is more up-to-date
 // by comparing the index and term of the last entry in the existing logs.
 // If the logs have last entry with different terms, then the log with the
@@ -296,10 +308,17 @@ bool RaftLog::is_up_to_date(uint64_t last_index, uint64_t term){
 }
 
 std::vector<eraftpb::Entry> RaftLog::next_entries(){
+	uint64_t offset = std::max(this->applied + 1, this->first_index());
+	LOG_INFO << "RaftLog::next_entries, committed:" << this->committed  << " offset:" << offset;
+	if (this->committed + 1 > offset) {
+		return this->slice(offset, committed + 1, NO_LIMIT);
+	}
 	return std::vector<eraftpb::Entry>();
 }
+
 //用来判断当前是否有可以写入到Storage中的log
 bool RaftLog::has_next_entries(){
-	return false;
+	auto offset = std::max(this->applied + 1, this->first_index());
+	return this->committed + 1 > offset;
 }
 

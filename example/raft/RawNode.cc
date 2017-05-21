@@ -1,10 +1,23 @@
 #include "RawNode.h"
 #include "RaftLog.h"
 
-Ready::Ready(Raft* raft){
+Ready::Ready(Raft* raft, SoftState& prev_ss, eraftpb::HardState& prev_hs){
 	this->messages = raft->msgs;
 	raft->msgs.clear();
 	this->entries = raft->raft_log->unstable_entries();
+	this->committed_entries = raft->raft_log->next_entries();
+
+	//获取当前leader，以及当前角色
+	auto cur_ss = raft->soft_state();
+	if (cur_ss != prev_ss) {
+		this->ss = cur_ss;
+	}
+
+	//获取term、vote、commit_index
+	auto cur_hs = raft->hard_state();
+	if (cur_hs.SerializeAsString() != prev_hs.SerializeAsString()) {
+		this->hs = cur_hs;
+	}
 }
 
 Ready::~Ready(){
@@ -23,7 +36,25 @@ void RawNode::step(const eraftpb::Message& m){
 
 void RawNode::commit_ready(Ready& rd) {
 	LOG_INFO << "RawNode::commit_ready, size:" << rd.entries.size(); 
+	if (rd.hs){
+		if (rd.hs.get().SerializeAsString() != eraftpb::HardState().SerializeAsString()){
+			this->prev_hs = rd.hs.get();
+		}
+	}
 
+	if (this->prev_hs.commit() != 0 ){
+		// In most cases, prevHardSt and rd.HardState will be the same
+		// because when there are new entries to apply we just sent a
+		// HardState with an updated Commit value. However, on initial
+		// startup the two are different because we don't send a HardState
+		// until something changes, but we do send any un-applied but
+		// committed entries (and previously-committed entries may be
+		// incorporated into the snapshot, even if rd.CommittedEntries is
+		// empty). Therefore we mark all committed entries as applied
+		// whether they were included in rd.HardState or not.
+		this->raft->raft_log->applied_to(this->prev_hs.commit());
+	}
+	
 	if (!rd.entries.empty()) {
 		LOG_INFO << "RawNode::commit_ready:" << rd.entries[0].DebugString(); 
 

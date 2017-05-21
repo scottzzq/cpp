@@ -16,7 +16,7 @@ class TiKVServer;
 class Store{
 	public:
 		typedef boost::function<void()> Functor;
-		typedef boost::function<void(msgpb::Message message)>  ResponseCallback;
+		typedef boost::function<void(const raft_cmdpb::RaftCmdResponse&)>  ResponseCallback;
 
 		Store(TiKVServer* server, uint64_t store_id);
 		~Store();
@@ -44,7 +44,8 @@ class Store{
 		}
 		bool validate_store_id(const raft_cmdpb::RaftCmdRequest& msg);
 		bool validate_region(const raft_cmdpb::RaftCmdRequest& msg) ;
-		void propose_raft_command(const raft_cmdpb::RaftCmdRequest& msg);
+		void propose_raft_command(const raft_cmdpb::RaftCmdRequest& msg, 
+				ResponseCallback callback);
 	private:
 		Store(const Store& s);
 		Store& operator=(const Store& s);

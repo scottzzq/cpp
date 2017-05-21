@@ -7,23 +7,24 @@
 #include "tikv_common.h"
 #include "Storage.h"
 #include "Config.h"
+#include <boost/optional.hpp>
 
 // Ready encapsulates the entries and messages that are ready to read,
 // be saved to stable storage, committed or sent to other peers.
 // All fields in Ready are read-only.
 class Ready {
 	public:
-		Ready(Raft* raft);
+		Ready(Raft* raft, SoftState& prev_ss, eraftpb::HardState& prev_hs);
 		~Ready();
 		// The current volatile state of a Node.
 		// SoftState will be nil if there is no update.
 		// It is not required to consume or store SoftState.
-		//pub ss: Option<SoftState>,
+		boost::optional<SoftState> ss;
 
 		// The current state of a Node to be saved to stable storage BEFORE
 		// Messages are sent.
 		// HardState will be equal to empty state if there is no update.
-		//eraftpb::HardState hs;
+		boost::optional<eraftpb::HardState> hs;
 
 		// read_states states can be used for node to serve linearizable read requests locally
 		// when its applied index is greater than the index in ReadState.
@@ -50,7 +51,6 @@ class Ready {
 		std::vector<eraftpb::Message> messages;
 };
 
-
 class RawNode {
 	public:
 		RawNode(RaftConfig conf, Storage* storage){
@@ -58,10 +58,24 @@ class RawNode {
 		}
 		~RawNode(){
 		}
-		inline bool has_ready(){
+
+		inline bool has_ready() {
+			if (this->raft->soft_state() != this->prev_ss) {
+				return true;
+			}
+			auto hs = this->raft->hard_state();
+			if (hs.SerializeAsString() != eraftpb::HardState().SerializeAsString() && 
+					hs.SerializeAsString() != this->prev_hs.SerializeAsString()) {
+				return true;
+			}
+
+			//if (!raft->msgs.empty() || this->raft->raft_log.unstable_entries().is_some() ||
 			if (!raft->msgs.empty()){
 				return true;
 			}
+			// if !raft.read_states.is_empty() {
+			//     return true;
+			// }
 			return false;
 		}
 
@@ -71,7 +85,7 @@ class RawNode {
 		}
 
 		Ready ready(){
-			return Ready(this->raft);
+			return Ready(this->raft, this->prev_ss, this->prev_hs);
 		}
 
 		void step(const eraftpb::Message& m);

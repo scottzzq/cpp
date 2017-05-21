@@ -24,18 +24,19 @@ using namespace muduo::net;
 void ProtobufCodec::fillEmptyBuffer(Buffer* buf, msgpb::Message message) {
 	assert(buf->readableBytes() == 0);
 	int byte_size = message.ByteSize();
-	buf->ensureWritableBytes(byte_size + 16);
 	buf->appendInt16(0xdaf4);
 	buf->appendInt16(0x01);
 	buf->appendInt32(byte_size);
 	buf->appendInt64(0x01);
+
+	buf->ensureWritableBytes(byte_size);
 
 	uint8_t* start = reinterpret_cast<uint8_t*>(buf->beginWrite());
 	uint8_t* end = message.SerializeWithCachedSizesToArray(start);
 	if (end - start != byte_size) {
 		ByteSizeConsistencyError(byte_size, message.ByteSize(), static_cast<int>(end - start));
 	}
-	buf->hasWritten(byte_size + 16);
+	buf->hasWritten(byte_size);
 }
 
 namespace {
@@ -87,7 +88,7 @@ void ProtobufCodec::onMessage(const TcpConnectionPtr& conn,
 		Buffer* buf,
 		Timestamp receiveTime) {
 
-	LOG_INFO << "total size:" << buf->readableBytes();
+	LOG_INFO << conn.get() << ": total size:" << buf->readableBytes();
 	while (buf->readableBytes() >= kMinMessageLen) {
 		int16_t be16 = 0;
 		int32_t be32 = 0;
@@ -108,6 +109,7 @@ void ProtobufCodec::onMessage(const TcpConnectionPtr& conn,
 		be64 = sockets::networkToHost64(be64);
 		const uint64_t msg_id = be64;
 
+		LOG_INFO << conn.get() << ": readableBytes size:" << buf->readableBytes() << " msg_len:" << msg_len;
 		if (msg_len > kMaxMessageLen) {
 			errorCallback_(conn, buf, receiveTime, kInvalidLength);
 			break;

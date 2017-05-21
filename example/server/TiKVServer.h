@@ -31,8 +31,11 @@ class TiKVServer : boost::noncopyable {
 				const MessagePtr& message,
 				muduo::Timestamp receiveTime);
 
-		void response_callback(const muduo::net::TcpConnectionPtr conn, msgpb::Message message){
-			codec_.send(conn, message);
+		void response_callback(const muduo::net::TcpConnectionPtr conn, const raft_cmdpb::RaftCmdResponse& resp){
+			auto resp_msg = msgpb::Message();
+			resp_msg.set_msg_type(msgpb::MessageType::CmdResp);
+			resp_msg.mutable_cmd_resp()->CopyFrom(resp);
+			codec_.send(conn, resp_msg);
 		}
 
 		void start();

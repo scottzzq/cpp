@@ -13,3 +13,8 @@ google::protobuf::Message* createMessage(const std::string& typeName) {
 	}
 	return message;
 }
+
+std::string get_uuid_from_req(const raft_cmdpb::RaftCmdRequest& msg){
+	return msg.header().uuid();
+}
+

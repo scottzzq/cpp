@@ -16,9 +16,15 @@ const std::string CAMPAIGN_ELECTION  = "CampaignElection";
 // CAMPAIGN_TRANSFER represents the type of leader transfer.
 const std::string CAMPAIGN_TRANSFER = "CampaignTransfer";
 
-// A constant represents invalid index of raft log.
-const uint64_t INVALID_INDEX = 0;
-const uint64_t NO_LIMIT = INT_MAX;
+bool operator != (const SoftState& lhs, const SoftState& rhs){
+	return lhs.leader_id != rhs.leader_id ||
+		lhs.raft_state == rhs.raft_state;
+}
+
+bool operator == (const SoftState& lhs, const SoftState& rhs){
+	return lhs.leader_id == rhs.leader_id && 
+		lhs.raft_state == rhs.raft_state;
+}
 
 eraftpb::Message new_message(uint64_t to, eraftpb::MessageType field_type, uint64_t from){
 	eraftpb::Message m;
@@ -173,15 +179,16 @@ void Raft::send(eraftpb::Message& m) {
 	this->msgs.push_back(m);
 }
 
-void Raft::prepare_send_entries(eraftpb::Message& m, uint64_t to, uint64_t term, std::vector<eraftpb::Entry>& ents) {
+void Raft::prepare_send_entries(eraftpb::Message& m, uint64_t to, uint64_t t, std::vector<eraftpb::Entry>& ents) {
 	std::map<uint64_t, Progress*>::const_iterator it = this->prs.find(to);
 	Progress* pr = NULL;
 	if (it != this->prs.end()){
 		pr = it->second;
 		m.set_msg_type(eraftpb::MessageType::MsgAppend);
 		m.set_index(pr->next_idx - 1);
-		m.set_log_term(term);
+		m.set_log_term(t);
 		m.set_commit(this->raft_log->committed);
+		LOG_INFO << "send MsgAppend to:[" << to << "]" << "log_index:[" << pr->next_idx - 1 << "]" << "log_term:[" << t << "]";
 
 		for (size_t i = 0; i < ents.size(); ++i){
 			eraftpb::Entry* en = m.add_entries();
@@ -533,7 +540,6 @@ uint64_t Raft::poll(uint64_t id, bool v){
 }
 
 void Raft::step(eraftpb::Message m){
-	LOG_INFO << "Raft::step:" << m.DebugString();
 	if (m.term() == 0) {
 		// local message
 	} else if (m.term() > this->term){
