@@ -98,7 +98,6 @@ Raft::Raft(RaftConfig conf, Storage* storage){
 	this->heartbeat_timeout = conf.heartbeat_tick;
 	this->election_timeout = conf.election_tick;
 
-	this->become_follower(1, INVALID_ID);
 
 	LOG_INFO << "My id is:" << this->id;
 
@@ -117,6 +116,18 @@ Raft::Raft(RaftConfig conf, Storage* storage){
 	if (conf.applied > 0) {
 		this->raft_log->applied_to(conf.applied);
 	}
+	this->become_follower(this->term, INVALID_ID);
+	std::string node_str;
+	for (auto& id: this->nodes()){
+		char temp[64];
+		memset(temp, 0, 64);
+		sprintf(temp, "%ld ", id);
+		node_str.append(temp);
+	}
+    LOG_INFO << this->tag << " newRaft [peers: " << node_str << ", term: "<< 
+		this->term << ", commit: "<< this->raft_log->committed \
+		<<", applied: " << this->raft_log->get_applied() << ", last_index: " << this->raft_log->last_index() \
+		<< ", last_term: " << this->raft_log->last_term() << "]";
 }
 
 Raft::~Raft(){
@@ -365,7 +376,6 @@ void Raft::append_entry(std::vector<eraftpb::Entry>& es) {
 }
 
 void Raft::tick(){
-	LOG_INFO << "Raft::tick ";
 	switch (this->state) {
 		case StateRole::Follower:
 		case StateRole::PreCandidate:
@@ -378,7 +388,6 @@ void Raft::tick(){
 }
 
 void Raft::tick_election(){
-	LOG_INFO << "Raft::tick_election";
 	this->election_elapsed += 1;
 	if (this->promotable() && this->pass_election_timeout()) {
 		this->election_elapsed = 0;
@@ -388,7 +397,6 @@ void Raft::tick_election(){
 }
 
 void Raft::tick_heartbeat(){
-	LOG_INFO << "Raft::tick_heartbeat";
 	this->election_elapsed += 1;
 	this->heartbeat_elapsed += 1;
 	if (this->election_elapsed >= this->randomized_election_timeout){
@@ -714,8 +722,6 @@ void Raft::step(eraftpb::Message m){
 }
 
 void Raft::step_candidate(eraftpb::Message m){
-	LOG_INFO << "Raft::step_candidate:" << m.DebugString();
-
 	uint64_t cur_term = this->term;
 	switch(m.msg_type()){
 		case eraftpb::MessageType::MsgPropose :
@@ -941,7 +947,6 @@ void Raft::step_leader(eraftpb::Message m){
 			old_paused,
 			maybe_commit,
 			to_send);
-	LOG_INFO << "step_leader:" << maybe_commit;
 	if (maybe_commit) {
 		if (this->maybe_commit()) {
 			this->bcast_append();
@@ -1066,8 +1071,6 @@ void Raft::load_state(eraftpb::HardState hs) {
 }
 
 bool Raft::pass_election_timeout() {
-	LOG_INFO << "this->election_elapsed:[" << this->election_elapsed << 
-		"] this->randomized_election_timeout:[" << this->randomized_election_timeout << "]"; 
 	return this->election_elapsed >= this->randomized_election_timeout;
 }
 

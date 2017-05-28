@@ -30,12 +30,10 @@ void RawNode::step(const eraftpb::Message& m){
 	//	return Err(Error::StepLocalMsg);
 	//}
 	//if (this->raft.prs.contains_key(&m.from()) || !is_response_msg(m.get_msg_type()) {
-	LOG_INFO << "RawNode::step: " << m.DebugString();
 	this->raft->step(m);
 }
 
 void RawNode::commit_ready(Ready& rd) {
-	LOG_INFO << "RawNode::commit_ready, size:" << rd.entries.size(); 
 	if (rd.hs){
 		if (rd.hs.get().SerializeAsString() != eraftpb::HardState().SerializeAsString()){
 			this->prev_hs = rd.hs.get();

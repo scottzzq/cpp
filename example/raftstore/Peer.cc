@@ -261,7 +261,6 @@ void Peer::handle_raft_ready(){
 	if (!this->raft_group->has_ready()) {
 		return;
 	}
-	LOG_INFO << this->tag << " handle raft ready";
 	auto ready = this->raft_group->ready();
 
 	if (this->is_leader()){
@@ -278,7 +277,6 @@ void Peer::handle_raft_ready(){
 
 void Peer::send(std::vector<eraftpb::Message>& msgs){
 	for (size_t i = 0; i < msgs.size(); ++i){
-		LOG_INFO << "Peer::send " << msgs[i].DebugString();
 		this->send_raft_message(msgs[i]);
 	}
 }
@@ -306,7 +304,6 @@ void Peer::send_raft_message(eraftpb::Message& msg){
 	metapb::Peer* to_p = raft_msg->mutable_to_peer();
 	from_p->CopyFrom(from_peer);
 	to_p->CopyFrom(to_peer);	
-	LOG_INFO << "Peer::send_raft_message: " << send_msg.DebugString();
 	this->store->get_server()->runInLoop(boost::bind(&TiKVServer::sendToStore, 
 				this->store->get_server(), to_store_id, send_msg));
 }
@@ -389,7 +386,8 @@ std::vector<ExecResult> Peer::handle_raft_commit_entries(
 			results.push_back(ret.get());
 		}
 	}
-	LOG_INFO << this->tag << " handle " << committed_count <<" committed entries";
+	if (committed_count > 0)
+		LOG_INFO << this->tag << " handle " << committed_count <<" committed entries";
 	return results;
 }
 
@@ -410,7 +408,7 @@ boost::optional<ExecResult> Peer::handle_raft_entry_normal(eraftpb::Entry& entry
 		apply_state_buffer[apply_state_msg_size] = '\0';
 		state.SerializeToArray(apply_state_buffer, apply_state_msg_size);
 
-		wb.Put(apply_state_key(this->region_id), apply_state_buffer);
+		wb.Put(apply_state_key(this->region_id), std::string(apply_state_buffer, apply_state_msg_size));
 		delete []apply_state_buffer;
 
 		auto s = this->db->Write(rocksdb::WriteOptions(), &wb);

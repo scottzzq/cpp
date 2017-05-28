@@ -80,7 +80,6 @@ class RawNode {
 		}
 
 		inline void tick(){
-			LOG_INFO << "RawNode::tick";
 			raft->tick();
 		}
 

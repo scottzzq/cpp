@@ -18,7 +18,7 @@
 
 const uint64_t STORE_CAPACITY = INT_MAX;
 //Raft Timer
-const uint64_t RAFT_BASE_TICK_INTERVAL = 10;
+const uint64_t RAFT_BASE_TICK_INTERVAL = 100;
 
 const uint64_t RAFT_HEARTBEAT_TICKS = 10;
 const uint64_t RAFT_ELECTION_TIMEOUT_TICKS = 50;

@@ -109,8 +109,6 @@ void RaftLog::commit_to(uint64_t to_commit) {
 }
 
 void RaftLog::applied_to(uint64_t idx){
-	LOG_INFO << "committed:[" << this->committed << \
-		"] applied:[" << this->applied << "] idx:[" << idx << "]";
 	if (idx == 0) {
 		return;
 	}
@@ -120,8 +118,9 @@ void RaftLog::applied_to(uint64_t idx){
 		abort();
 		exit(1);
 	}
+	if (this->applied != idx)
+		LOG_INFO << "apply to:" << idx;
 	this->applied = idx;
-	LOG_INFO << "apply to:" << idx;
 }
 
 void RaftLog::stable_to(uint64_t idx, uint64_t term){
@@ -309,7 +308,6 @@ bool RaftLog::is_up_to_date(uint64_t last_index, uint64_t term){
 
 std::vector<eraftpb::Entry> RaftLog::next_entries(){
 	uint64_t offset = std::max(this->applied + 1, this->first_index());
-	LOG_INFO << "RaftLog::next_entries, committed:" << this->committed  << " offset:" << offset;
 	if (this->committed + 1 > offset) {
 		return this->slice(offset, committed + 1, NO_LIMIT);
 	}

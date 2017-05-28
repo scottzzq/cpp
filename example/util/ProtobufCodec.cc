@@ -88,7 +88,7 @@ void ProtobufCodec::onMessage(const TcpConnectionPtr& conn,
 		Buffer* buf,
 		Timestamp receiveTime) {
 
-	LOG_INFO << conn.get() << ": total size:" << buf->readableBytes();
+	//LOG_INFO << conn.get() << ": total size:" << buf->readableBytes();
 	while (buf->readableBytes() >= kMinMessageLen) {
 		int16_t be16 = 0;
 		int32_t be32 = 0;
@@ -109,7 +109,7 @@ void ProtobufCodec::onMessage(const TcpConnectionPtr& conn,
 		be64 = sockets::networkToHost64(be64);
 		const uint64_t msg_id = be64;
 
-		LOG_INFO << conn.get() << ": readableBytes size:" << buf->readableBytes() << " msg_len:" << msg_len;
+		//LOG_INFO << conn.get() << ": readableBytes size:" << buf->readableBytes() << " msg_len:" << msg_len;
 		if (msg_len > kMaxMessageLen) {
 			errorCallback_(conn, buf, receiveTime, kInvalidLength);
 			break;

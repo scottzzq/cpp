@@ -50,7 +50,7 @@ void InvokeContext::save_raft(uint64_t region_id) {
 	char* raft_state_buffer = new char[raft_state_msg_size + 1];
 	raft_state_buffer[raft_state_msg_size] = '\0';
 	this->raft_state.SerializeToArray(raft_state_buffer, raft_state_msg_size);
-	this->wb.Put(raft_state_key(region_id), raft_state_buffer);
+	this->wb.Put(raft_state_key(region_id), std::string(raft_state_buffer, raft_state_msg_size));
 	delete []raft_state_buffer;
 	LOG_INFO << "InvokeContext::save_raft:" << this->raft_state.DebugString();
 }
@@ -60,7 +60,7 @@ void InvokeContext::save_apply(uint64_t region_id)  {
 	char* apply_state_buffer = new char[apply_state_msg_size + 1];
 	apply_state_buffer[apply_state_msg_size] = '\0';
 	apply_state.SerializeToArray(apply_state_buffer, apply_state_msg_size);
-	this->wb.Put(apply_state_key(region_id), apply_state_buffer);
+	this->wb.Put(apply_state_key(region_id), std::string(apply_state_buffer, apply_state_msg_size));
 	delete []apply_state_buffer;
 	LOG_INFO << "InvokeContext::save_apply:" << this->apply_state.DebugString();
 }
@@ -142,7 +142,7 @@ raft_serverpb::RaftLocalState init_raft_state(rocksdb::DB* db, metapb::Region re
 		char* entry_buffer = new char[entry_msg_size + 1];
 		entry_buffer[entry_msg_size] = '\0';
 		e.SerializeToArray(entry_buffer, entry_msg_size);
-		wb.Put(raft_log_key(region.id(), e.index()), entry_buffer);
+		wb.Put(raft_log_key(region.id(), e.index()), std::string(entry_buffer, entry_msg_size));
 		LOG_INFO << "append raftlog:[" << e.index() << "]" << " size:" << entry_msg_size;
 		delete []entry_buffer;
 	}
@@ -250,7 +250,8 @@ PeerStorage::~PeerStorage(){
 }
 
 void PeerStorage::handle_raft_ready(Ready& ready){
-	LOG_INFO << "PeerStorage::handle_raft_ready, entries_size:" << ready.entries.size();
+	if (ready.entries.size() > 0)
+		LOG_INFO << "PeerStorage::handle_raft_ready, entries_size:" << ready.entries.size();
 	InvokeContext ctx(this);
 	if (!ready.entries.empty()){
 		this->append(ctx, ready.entries);

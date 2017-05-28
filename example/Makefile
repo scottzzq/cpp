@@ -7,7 +7,7 @@ else
 	CXXFLAGS = -O2 -pipe -fPIC -W -Wwrite-strings -Wpointer-arith -Wreorder -Wswitch -Wsign-promo -Wredundant-decls -Wformat -Wall -D_GNU_SOURCE -D__STDC_FORMAT_MACROS -std=c++11 -Wno-unused-variable -Wno-maybe-uninitialized -Wno-unused-parameter
 	# CXXFLAGS = -Wall -W -DDEBUG -g -O0 -D__XDEBUG__ 
 endif
-OBJECT = tikv_server
+OBJECT = tikv_server test_rocksdb
 
 SRC_DIR = ./
 PROTOCOL_DIR = ./protocol
@@ -88,6 +88,9 @@ all: $(OBJECT)
 
 
 tikv_server: tikv_server_main.o tikv_common.o raftstore/PeerStorage.o raftstore/Peer.o raftstore/StoreRouter.o raftstore/Store.o raft/Unstable.o raft/Progress.o raft/Storage.o raft/RaftLog.o raft/RawNode.o raft/Raft.o server/TiKVServer.o util/ProtobufCodec.o util/util.o util/keys.o server/StoreClient.o protocol/msgpb.pb.o protocol/coprocessor.pb.o protocol/eraftpb.pb.o protocol/errorpb.pb.o protocol/kvrpcpb.pb.o protocol/metapb.pb.o protocol/msgpb.pb.o protocol/mvccpb.pb.o  protocol/pdpb.pb.o protocol/raft_cmdpb.pb.o protocol/raft_serverpb.pb.o protocol/volume_cmdpb.pb.o
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(INCLUDE_PATH) $(LIB_PATH) $(LIBS)
+
+test_rocksdb: test_rocksdb.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(INCLUDE_PATH) $(LIB_PATH) $(LIBS)
 
 tikv_client: tikv_client_main.o server/TiKVServer.o util/ProtobufCodec.o server/StoreClient.o protocol/msgpb.pb.o protocol/coprocessor.pb.o protocol/eraftpb.pb.o protocol/errorpb.pb.o protocol/kvrpcpb.pb.o protocol/metapb.pb.o protocol/msgpb.pb.o protocol/mvccpb.pb.o  protocol/pdpb.pb.o protocol/raft_cmdpb.pb.o protocol/raft_serverpb.pb.o protocol/volume_cmdpb.pb.o

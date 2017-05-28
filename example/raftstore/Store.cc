@@ -20,7 +20,6 @@ Store::~Store(){
 }
 
 void Store::scheduleTask(){
-	LOG_INFO << "Store::scheduleTask";
 	std::map<uint64_t, Peer*>::iterator it = region_peers.begin();
 	while (it != region_peers.end()){
 		it->second->raft_group->tick();
