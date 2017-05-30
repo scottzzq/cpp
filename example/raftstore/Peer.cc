@@ -213,44 +213,43 @@ bool Peer::propose(PendingCmd cmd, raft_cmdpb::RaftCmdRequest req, raft_cmdpb::R
 			resp.mutable_header()->set_current_term(this->term());
 		}
 		cmd.cb(resp);
-	} 
-	else if (get_transfer_leader_cmd(req) ){
-	//	let transfer_leader = get_transfer_leader_cmd(&req).unwrap();
-	//	let peer = transfer_leader.get_peer();
+		return true;
+	} else if (get_transfer_leader_cmd(req) ){
+		//	let transfer_leader = get_transfer_leader_cmd(&req).unwrap();
+		//	let peer = transfer_leader.get_peer();
 
-	//	if self.is_tranfer_leader_allowed(peer) {
-	//		self.transfer_leader(peer);
-	//	} else {
-	//		info!("{} transfer leader message {:?} ignored directly",
-	//				self.tag,
-	//				req);
-	//	}
+		//	if self.is_tranfer_leader_allowed(peer) {
+		//		self.transfer_leader(peer);
+		//	} else {
+		//		info!("{} transfer leader message {:?} ignored directly",
+		//				self.tag,
+		//				req);
+		//	}
 
-	//	// transfer leader command doesn't need to replicate log and apply, so we
-	//	// return immediately. Note that this command may fail, we can view it just as an advice
-	//	return cmd.cb.call_box((make_transfer_leader_response(),));
-	//} else if get_change_peer_cmd(&req).is_some() {
-	//	if self.raft_group.raft.pending_conf {
-	//		return Err(box_err!("there is a pending conf change, try later"));
-	//	}
-	//	if let Some(cmd) = self.pending_cmds.take_conf_change() {
-	//		// if it loses leadership before conf change is replicated, there may be
-	//		// a stale pending conf change before next conf change is applied. If it
-	//		// becomes leader again with the stale pending conf change, will enter
-	//		// this block, so we notify leadership may have changed.
-	//		self.notify_not_leader(cmd);
-	//	}
-
-	//	if let Err(e) = self.propose_conf_change(req) {
-	//		err_resp.mut_header().set_error(e.into());
-	//		return cmd.cb.call_box((err_resp,));
-	//	}
-
+		//	// transfer leader command doesn't need to replicate log and apply, so we
+		//	// return immediately. Note that this command may fail, we can view it just as an advice
+		//	return cmd.cb.call_box((make_transfer_leader_response(),));
+	} else if (get_change_peer_cmd(req)) {
+		//	if self.raft_group.raft.pending_conf {
+		//		return Err(box_err!("there is a pending conf change, try later"));
+		//	}
+		//	if let Some(cmd) = self.pending_cmds.take_conf_change() {
+		//		// if it loses leadership before conf change is replicated, there may be
+		//		// a stale pending conf change before next conf change is applied. If it
+		//		// becomes leader again with the stale pending conf change, will enter
+		//		// this block, so we notify leadership may have changed.
+		//		self.notify_not_leader(cmd);
+		//	}
+		if (!this->propose_conf_change(req)) {
+			//resp.mutable_header().set_error(e.into());
+			cmd.cb(resp);
+			return false;
+		}
 		this->pending_cmds.set_conf_change(cmd);
-	} 
-	else if (this->propose_normal(req) == false) {
-	//	err_resp.mut_header().set_error(e.into());
-	//	return cmd.cb.call_box((err_resp,));
+	} else if (!this->propose_normal(req)) {
+		//	err_resp.mut_header().set_error(e.into());
+			cmd.cb(resp);
+			return false;
 	} else {
 		this->pending_cmds.append_normal(cmd);
 	}
@@ -441,6 +440,31 @@ boost::optional<ExecResult> Peer::handle_raft_entry_conf_change(eraftpb::Entry& 
 	auto index = entry.index();
 	auto term = entry.term();
 
+	typedef eraftpb::ConfChange T;
+	std::string typeName = T::descriptor()->full_name();
+	MessagePtr message;
+	message.reset(createMessage(typeName));
+	assert(message != NULL);
+	if (message->ParseFromArray(entry.data().data(), entry.data().size())) {
+		auto conf_change = muduo::down_pointer_cast<eraftpb::ConfChange>(message);
+
+		typedef raft_cmdpb::RaftCmdRequest T;
+		std::string typeName = T::descriptor()->full_name();
+		MessagePtr message;
+		message.reset(createMessage(typeName));
+		assert(message != NULL);
+		if (message->ParseFromArray(conf_change->context().data(), conf_change->context().size())) {
+			auto cmd = muduo::down_pointer_cast<raft_cmdpb::RaftCmdRequest>(message);
+			this->process_raft_cmd(index, term, *cmd.get());
+			this->raft_group->apply_conf_change(*conf_change);
+		}else{
+			LOG_FATAL << "ParseFromArray Error";
+			exit(1);
+		}
+	}else{
+		LOG_FATAL << "ParseFromArray Error";
+		exit(1);
+	}
 	return boost::optional<ExecResult>(boost::none);
 	//let mut conf_change =
 	//    try!(protobuf::parse_from_bytes::<eraftpb::ConfChange>(entry.get_data()));
@@ -489,22 +513,39 @@ uint64_t Peer::next_proposal_index(){
 bool Peer::propose_normal(raft_cmdpb::RaftCmdRequest cmd){
 	// TODO: validate request for unexpected changes.
 	int data_size = cmd.ByteSize();
-	char* data_buffer = new char[data_size + 1];
-	data_buffer[data_size] = '\0';
+	char* data_buffer = new char[data_size];
 	cmd.SerializeToArray(data_buffer, data_size);
-	//if data.len() as u64 > self.raft_entry_max_size {
-	//    error!("entry is too large, entry size {}", data.len());
-	//    return Err(Error::RaftEntryTooLarge(self.region_id, data.len() as u64));
-	//}
 
 	uint64_t propose_index = this->next_proposal_index();
 	this->raft_group->propose(std::string(data_buffer, data_size));
+	delete []data_buffer;
+
 	if (this->next_proposal_index() == propose_index) {
 		// The message is dropped silently, this usually due to leader absence
 		// or transferring leader. Both cases can be considered as NotLeader error.
 		return false;
 		//return Err(Error::NotLeader(self.region_id, None));
 	}
+	return true;
+}
+
+bool Peer::propose_conf_change(raft_cmdpb::RaftCmdRequest cmd) {
+	int data_size = cmd.ByteSize();
+	char* data_buffer = new char[data_size];
+	cmd.SerializeToArray(data_buffer, data_size);
+	std::string data(data_buffer, data_size);
+	delete []data_buffer;
+
+	auto change_peer = get_change_peer_cmd(cmd);
+	assert(change_peer);
+
+	eraftpb::ConfChange cc;
+	cc.set_change_type(change_peer->change_type());
+	cc.set_node_id(change_peer->peer().id());
+	cc.set_context(data);
+
+	LOG_INFO << this->tag << " propose conf change " << cc.change_type() << " peer " << cc.node_id();
+	this->raft_group->propose_conf_change(cc);
 	return true;
 }
 
@@ -604,12 +645,114 @@ raft_cmdpb::RaftCmdResponse Peer::apply_raft_cmd(
 
 raft_cmdpb::RaftCmdResponse Peer::exec_raft_cmd(ExecContext& ctx) {
 	if (ctx.req.has_admin_request()) {
-		//return this->exec_admin_cmd(ctx);
+		LOG_INFO << "exec_raft_cmd admin request";
+		return this->exec_admin_cmd(ctx);
 	} else {
 		// Now we don't care write command outer, so use None.
 		return this->exec_write_cmd(ctx);
 	}
 	return raft_cmdpb::RaftCmdResponse();
+}
+
+raft_cmdpb::RaftCmdResponse Peer::exec_admin_cmd(ExecContext& ctx){
+	auto request = ctx.req.admin_request();
+	auto cmd_type = request.cmd_type();
+	LOG_INFO << this->tag << " execute admin command " << request.DebugString();
+	switch (cmd_type) {
+		case raft_cmdpb::AdminCmdType::ChangePeer:
+			this->exec_change_peer(ctx, request);
+			break;
+		case raft_cmdpb::AdminCmdType::TransferLeader:
+		case raft_cmdpb::AdminCmdType::ComputeHash:
+		case raft_cmdpb::AdminCmdType::VerifyHash: 
+		case raft_cmdpb::AdminCmdType::InvalidAdmin:
+		case raft_cmdpb::AdminCmdType::Split:
+		case raft_cmdpb::AdminCmdType::CompactLog :
+		default:
+			break;
+	}
+	return raft_cmdpb::RaftCmdResponse();
+}
+
+raft_cmdpb::AdminResponse Peer::exec_change_peer(ExecContext& ctx, raft_cmdpb::AdminRequest req) {
+	auto request = req.change_peer();
+	auto peer = request.peer();
+	auto store_id = peer.store_id();
+	auto change_type = request.change_type();
+	LOG_INFO << this->tag << " exec ConfChange " << change_type << ", epoch: " << this->peer_storage->inmutable_region().region_epoch().DebugString();
+
+	// TODO: we should need more check, like peer validation, duplicated id, etc.
+	//let exists = util::find_peer(&region, store_id).is_some();
+	//let conf_ver = region.get_region_epoch().get_conf_ver() + 1;
+	//region.mut_region_epoch().set_conf_ver(conf_ver);
+
+	switch (change_type) {
+		case eraftpb::ConfChangeType::AddNode:
+			//if exists {
+			//	error!("{} can't add duplicated peer {:?} to region {:?}",
+			//			self.tag,
+			//			peer,
+			//			region);
+			//	return Err(box_err!("can't add duplicated peer {:?} to region {:?}",
+			//				peer,
+			//				region));
+			//}
+			//// TODO: Do we allow adding peer in same node?
+			//// Add this peer to cache.
+			this->peer_cache.insert(std::make_pair(peer.id(), peer));
+			//this->peer_heartbeats.insert(peer.get_id(), Instant::now());
+			this->peer_storage->mutable_region().add_peers()->CopyFrom(peer);
+			LOG_INFO << this->tag <<" add peer " << peer.DebugString() << " to region " << this->peer_storage->inmutable_region().DebugString();
+		case eraftpb::ConfChangeType::RemoveNode:
+			break;
+			//if !exists {
+			//	error!("{} remove missing peer {:?} from region {:?}",
+			//			self.tag,
+			//			peer,
+			//			region);
+			//	return Err(box_err!("remove missing peer {:?} from region {:?}", peer, region));
+			//}
+
+			//if self.peer_id() == peer.get_id() {
+			//	// Remove ourself, we will destroy all region data later.
+			//	// So we need not to apply following logs.
+			//	self.pending_remove = true;
+			//}
+
+			//// Remove this peer from cache.
+			//self.peer_cache.borrow_mut().remove(&peer.get_id());
+			//self.peer_heartbeats.remove(&peer.get_id());
+			//util::remove_peer(&mut region, store_id).unwrap();
+
+			//warn!("{} remove {} from region:{:?}",
+			//		self.tag,
+			//		peer.get_id(),
+			//		self.region());
+	}
+// enum PeerState {
+//     Normal       = 0;
+//     Applying     = 1;
+//     Tombstone    = 2;
+// }
+
+// message RegionLocalState {
+//     optional PeerState state        = 1;
+//     optional metapb.Region region   = 2;
+// }
+//let mut state = RegionLocalState::new();
+//state.set_region(region.clone());
+//try!(ctx.wb.put_msg(&keys::region_state_key(region.get_id()), &state));
+
+raft_cmdpb::AdminResponse resp;
+return resp;
+//resp.mut_change_peer().set_region(region.clone());
+
+//Ok((resp,
+//    Some(ExecResult::ChangePeer {
+//    change_type: change_type,
+//    peer: peer.clone(),
+//    region: region,
+//})))
 }
 
 raft_cmdpb::RaftCmdResponse Peer::exec_write_cmd(ExecContext& ctx){

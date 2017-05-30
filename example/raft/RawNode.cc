@@ -68,7 +68,6 @@ eraftpb::ConfState RawNode::apply_conf_change(eraftpb::ConfChange cc){
 		for (auto n: this->raft->nodes()){
 			cs.add_nodes(n);
 		}
-		//cs.set_nodes(this->raft->nodes());
 		return cs;
 	}
 	uint64_t nid = cc.node_id();
@@ -101,17 +100,15 @@ void RawNode::propose(std::string data) {
 
 // ProposeConfChange proposes a config change.
 void RawNode::propose_conf_change(eraftpb::ConfChange cc) {
-	//let data = box_try!(protobuf::Message::write_to_bytes(&cc));
 	int data_size = cc.ByteSize();
-	char* data_buffer = new char[data_size + 1];
-	data_buffer[data_size] = '\0';
+	char* data_buffer = new char[data_size];
 	cc.SerializeToArray(data_buffer, data_size);
 
 	auto m = eraftpb::Message();
 	m.set_msg_type(eraftpb::MessageType::MsgPropose);
 	auto e = m.add_entries();
 	e->set_entry_type(eraftpb::EntryType::EntryConfChange);
-	e->set_data(std::string(data_buffer));
+	e->set_data(std::string(data_buffer, data_size));
 	this->raft->step(m);
 	delete []data_buffer;
 }

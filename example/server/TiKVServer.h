@@ -10,6 +10,7 @@
 #include <sstream>
 #include <stdio.h>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "eraftpb.pb.h"
 #include "raft_serverpb.pb.h"
@@ -17,6 +18,7 @@
 
 #include "ProtobufCodec.h"
 #include "StoreRouter.h"
+#include "PdClient.h"
 
 class StoreClient;
 class TiKVServer;
@@ -26,7 +28,7 @@ class TiKVServer : boost::noncopyable {
 		typedef boost::function<void()> Functor;
 		TiKVServer(muduo::net::EventLoop* loop,
 				const muduo::net::InetAddress& listenAddr);
-
+		void work_thread_init_func();
 		void onProtobufMessage(const muduo::net::TcpConnectionPtr& conn,
 				const MessagePtr& message,
 				muduo::Timestamp receiveTime);
@@ -43,9 +45,12 @@ class TiKVServer : boost::noncopyable {
 		void StoreConnected(StoreClient* client);
 		void StoreDisConnected(StoreClient* client);
 		void sendToStore(uint64_t store_id, msgpb::Message msg);
-
+		void resolveAddress(uint64_t store_id, msgpb::Message msg);
 		void runInLoop(const Functor& cb){
 			loop_->runInLoop(cb);
+		}
+		inline muduo::net::EventLoop* getLoop(){
+			return loop_;
 		}
 		void sendRaftResponse(const muduo::net::TcpConnectionPtr conn, msgpb::Message message);
 	private:
@@ -64,9 +69,13 @@ class TiKVServer : boost::noncopyable {
 		muduo::net::TcpServer server_;
 		ProtobufCodec codec_;
 		std::unordered_map<uint64_t, StoreClient* > store_map_;
-		std::unordered_map<uint64_t, StoreClient* > store_resolving_map_;
+		std::unordered_set<uint64_t> store_resolving_set_;
 		muduo::net::EventLoop* loop_;
 		StoreRouter* store_router_;
+
+		muduo::net::EventLoop* work_thread_loop;
+		muduo::net::EventLoopThread* work_thread;
+		PdClient* pd_client;
 };
 
 #endif

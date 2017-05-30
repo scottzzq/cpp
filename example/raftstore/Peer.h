@@ -107,6 +107,7 @@ class Peer{
 		void send(std::vector<eraftpb::Message>& msg);
 		void send_raft_message(eraftpb::Message& msg);
 		RawNode* raft_group;
+
 		inline boost::optional<metapb::Peer> get_peer_from_cache(uint64_t peer_id){
 			auto it = this->peer_cache.find(peer_id);
 			if (it != this->peer_cache.end()){
@@ -131,12 +132,18 @@ class Peer{
 
 		bool is_local_read(raft_cmdpb::RaftCmdRequest& req) ;
 		bool propose_normal(raft_cmdpb::RaftCmdRequest cmd);
+		bool propose_conf_change(raft_cmdpb::RaftCmdRequest cmd);
+
 		uint64_t next_proposal_index();
 		void process_raft_cmd(uint64_t index, uint64_t term,
 				raft_cmdpb::RaftCmdRequest& cmd);
 
 		raft_cmdpb::RaftCmdResponse exec_raft_cmd(ExecContext& ctx);
 		raft_cmdpb::RaftCmdResponse exec_write_cmd(ExecContext& ctx);
+		raft_cmdpb::RaftCmdResponse exec_admin_cmd(ExecContext& ctx);
+		raft_cmdpb::AdminResponse exec_change_peer(ExecContext& ctx, 
+				raft_cmdpb::AdminRequest request);
+
 		raft_cmdpb::Response do_put(ExecContext& ctx, raft_cmdpb::Request& req);
 		raft_cmdpb::RaftCmdResponse apply_raft_cmd(uint64_t index, uint64_t term,
 				raft_cmdpb::RaftCmdRequest& req);
@@ -145,8 +152,13 @@ class Peer{
 
 		boost::optional<ResponseCallback> find_cb(std::string uuid, uint64_t term, 
 				const raft_cmdpb::RaftCmdRequest& cmd);
+
+		inline metapb::Peer get_peer() const{
+			return this->peer;
+		}
+
 	private:
-			Peer& operator= (const Peer& p);
+		Peer& operator= (const Peer& p);
 		Peer(const Peer& p);
 		rocksdb::DB* db;
 		PeerStorage* peer_storage;

@@ -12,28 +12,30 @@ const uint64_t MAX_SNAP_TRY_CNT = 1;
 // When we bootstrap the region or handling split new region, we must
 // call this to initialize region local state first.
 void write_initial_state(rocksdb::DB* db, rocksdb::WriteBatch& w , uint64_t region_id) {
+	//RaftLocalState
 	auto raft_state = raft_serverpb::RaftLocalState();
 	raft_state.set_last_index(RAFT_INIT_LOG_INDEX);
 	raft_state.mutable_hard_state()->set_term(RAFT_INIT_LOG_TERM);
 	raft_state.mutable_hard_state()->set_commit(RAFT_INIT_LOG_INDEX);
 
 	int raft_state_msg_size = raft_state.ByteSize();
-	char* raft_state_buffer = new char[raft_state_msg_size + 1];
-	raft_state_buffer[raft_state_msg_size] = '\0';
+	char* raft_state_buffer = new char[raft_state_msg_size];
 	raft_state.SerializeToArray(raft_state_buffer, raft_state_msg_size);
 
+	//RaftApplyState
 	auto apply_state = raft_serverpb::RaftApplyState();
 	apply_state.set_applied_index(RAFT_INIT_LOG_INDEX);
 	apply_state.mutable_truncated_state()->set_index(RAFT_INIT_LOG_INDEX);
 	apply_state.mutable_truncated_state()->set_term(RAFT_INIT_LOG_TERM);
 
 	int apply_state_msg_size = apply_state.ByteSize();
-	char* apply_state_buffer = new char[apply_state_msg_size + 1];
-	apply_state_buffer[apply_state_msg_size] = '\0';
+	char* apply_state_buffer = new char[apply_state_msg_size];
 	apply_state.SerializeToArray(apply_state_buffer, apply_state_msg_size);
 
 	w.Put(raft_state_key(region_id), std::string(raft_state_buffer, raft_state_msg_size));
+	//LOG_INFO << "raft_state_key key:" << raft_state_key(region_id) << " value:" << std::string(raft_state_buffer, raft_state_msg_size);
 	w.Put(apply_state_key(region_id), std::string(apply_state_buffer, apply_state_msg_size));
+	//LOG_INFO << "apply_state_key:" << apply_state_key(region_id) << " value:" << std::string(apply_state_buffer, apply_state_msg_size);
 
 	delete []raft_state_buffer;
 	delete []apply_state_buffer;
@@ -66,29 +68,51 @@ void InvokeContext::save_apply(uint64_t region_id)  {
 }
 
 RaftState PeerStorage::initial_state(){
-	//message HardState {
-	//	optional uint64 term   = 1; 
-	//	optional uint64 vote   = 2; 
-	//	optional uint64 commit = 3; 
-	//}
-	eraftpb::HardState hard_state;
-	hard_state.CopyFrom(this->raft_state.hard_state());
-	//hard_state.set_term(1);
-	//hard_state.set_vote(4);
-	//hard_state.set_commit(5);
-
-	//message ConfState {
-	//	repeated uint64 nodes = 1;
-	//}
+	auto hard_state = this->raft_state.hard_state();
 	eraftpb::ConfState conf_state;
-	conf_state.add_nodes(4);
-	conf_state.add_nodes(5);
-	conf_state.add_nodes(6);
 
+	if (hard_state.SerializeAsString() == eraftpb::HardState().SerializeAsString()) {
+		//assert!(!self.is_initialized(),
+		//		"peer for region {:?} is initialized but local state {:?} has empty hard \
+		//		state",
+		//		self.region,
+		//		self.raft_state);
+		RaftState state;
+		state.hard_state = hard_state;
+		state.conf_state = conf_state;
+		return state;
+	}
+
+	for(auto& p :this->region.peers()) {
+		conf_state.add_nodes(p.id());
+	}
 	RaftState state;
 	state.hard_state = hard_state;
 	state.conf_state = conf_state;
 	return state;
+	////message HardState {
+	////	optional uint64 term   = 1; 
+	////	optional uint64 vote   = 2; 
+	////	optional uint64 commit = 3; 
+	////}
+	//eraftpb::HardState hard_state;
+	//hard_state.CopyFrom(this->raft_state.hard_state());
+	////hard_state.set_term(1);
+	////hard_state.set_vote(4);
+	////hard_state.set_commit(5);
+
+	////message ConfState {
+	////	repeated uint64 nodes = 1;
+	////}
+	//eraftpb::ConfState conf_state;
+	//conf_state.add_nodes(4);
+	//conf_state.add_nodes(5);
+	//conf_state.add_nodes(6);
+
+	//RaftState state;
+	//state.hard_state = hard_state;
+	//state.conf_state = conf_state;
+	//return state;
 }
 
 //message HardState {

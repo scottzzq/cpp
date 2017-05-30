@@ -27,22 +27,27 @@ class StoreClient : boost::noncopyable {
 						boost::bind(&StoreClient::onMessage, this, _1, _2, _3));
 				client_.enableRetry();
 			}
-		void onProtobufMessage(const muduo::net::TcpConnectionPtr& conn,
+		inline void onProtobufMessage(const muduo::net::TcpConnectionPtr& conn,
 				const MessagePtr& message,
 				muduo::Timestamp receiveTime) const{
 		}
 
-		void connect() {
+		inline void connect() {
 			client_.connect();
 		}
 
-		uint64_t getStoreID(){
+		inline uint64_t getStoreID() const{
 			return store_id_;
 		}
 
-		void send(msgpb::Message message){
+		inline void send(msgpb::Message message){
+			for (auto& msg: this->msgs){
+				codec_.send(this->client_.connection(), msg);
+			}
+			this->msgs.clear();
 			codec_.send(this->client_.connection(), message);
 		}
+		void push_msg(msgpb::Message message);
 	private:
 		void onConnection(const muduo::net::TcpConnectionPtr& conn);
 		void onMessage(const muduo::net::TcpConnectionPtr& conn, 
@@ -52,6 +57,7 @@ class StoreClient : boost::noncopyable {
 		muduo::net::EventLoop* loop_;
 		muduo::net::TcpClient client_;
 		ProtobufCodec codec_;
+		std::vector<msgpb::Message> msgs;
 };
 
 #endif

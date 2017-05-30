@@ -6,9 +6,9 @@
 
 #include <sstream>
 #include <boost/bind.hpp>
-#include "tikv_common.h"
 
-Store::Store(TiKVServer* server_, uint64_t store_id): store_id_(store_id), server(server_){
+Store::Store(StoreRouter* router_, TiKVServer* server_, uint64_t store_id): 
+	store_id_(store_id), server(server_), router(router_){
 	region_peers.clear();
 	pending_raft_groups.clear();
 	pending_regions.clear();
@@ -19,7 +19,7 @@ Store::~Store(){
 	delete thread_;
 }
 
-void Store::scheduleTask(){
+void Store::schedule_task(){
 	std::map<uint64_t, Peer*>::iterator it = region_peers.begin();
 	while (it != region_peers.end()){
 		it->second->raft_group->tick();
@@ -28,8 +28,27 @@ void Store::scheduleTask(){
 	}
 }
 
-void Store::threadInitFunc(muduo::net::EventLoop* loop_){
-	loop_->runEvery(RAFT_BASE_TICK_INTERVAL * 0.001, boost::bind(&Store::scheduleTask, this));
+void Store::heartbeat_pd(Peer* peer) {
+	metapb::Region region =  peer->region();
+	region.set_term(peer->term());
+	std::vector<pdpb::PeerStats> down_peers;
+
+	this->router->run_in_work_Loop(boost::bind(&StoreRouter::handle_heartbeat, 
+				this->router, region, peer->get_peer(), down_peers)); 
+}
+
+void Store::on_pd_heartbeat_tick(){
+	//for peer in self.region_peers.values_mut() {
+	//	peer.check_peers();
+	//}
+	for (auto &kv : this->region_peers) {
+		if (kv.second->is_leader()){
+			this->heartbeat_pd(kv.second);
+		}
+	}
+}
+
+void Store::thread_init_func(muduo::net::EventLoop* loop_){
 }
 
 void Store::add_peer(uint64_t region_id, Peer* p){
@@ -37,12 +56,79 @@ void Store::add_peer(uint64_t region_id, Peer* p){
 }
 
 bool Store::init(){
-	thread_ = new muduo::net::EventLoopThread(boost::bind(&Store::threadInitFunc, this, _1));
+	thread_ = new muduo::net::EventLoopThread(boost::bind(&Store::thread_init_func, this, _1));
 	loop_ = thread_->startLoop();
+
+	loop_->runEvery(RAFT_BASE_TICK_INTERVAL * 0.001, boost::bind(&Store::schedule_task, this));
+	loop_->runEvery(PD_HEARTBEAT_TICK_INTERVAL* 0.001, boost::bind(&Store::on_pd_heartbeat_tick, this));
 	return true;
 }
 
+// return false means the message is invalid, and can be ignored.
+bool Store::is_raft_msg_valid(const raft_serverpb::RaftMessage& msg) {
+	auto msg_region_id = msg.region_id();
+	auto from = msg.from_peer();
+	auto to = msg.to_peer();
+
+	if (to.store_id() != this->store_id_) {
+		LOG_WARN << "[region " << msg_region_id << "] store not match, to store id " 
+			<< to.store_id() << ", mine " << this->store_id_ << ", ignore it";
+		return false;
+	}
+
+	if (!msg.has_region_epoch()) {
+		LOG_ERROR << "[region " << msg_region_id << "] missing epoch in raft message, ignore it";
+		return false;
+	}
+	return true;
+}
+
+Result<bool, Error> Store::check_target_peer_valid(uint64_t region_id, metapb::Peer target) {
+	// we may encounter a message with larger peer id, which means
+	// current peer is stale, then we should remove current peer
+	//bool has_peer = false;
+	//let mut stale_peer = None;
+	//if let Some(p) = self.region_peers.get_mut(&region_id) {
+	//	has_peer = true;
+	//	let target_peer_id = target.get_id();
+	//	if p.peer_id() < target_peer_id {
+	//		if p.is_applying_snapshot() && !p.mut_store().cancel_applying_snap() {
+	//			warn!("[region {}] Stale peer {} is applying snapshot, will destroy next \
+	//					time.",
+	//					region_id,
+	//					p.peer_id());
+	//			return Ok(false);
+	//		}
+	//		stale_peer = Some(p.peer.clone());
+	//	} else if p.peer_id() > target_peer_id {
+	//		warn!("target peer id {} is less than {}, msg maybe stale.",
+	//				target_peer_id,
+	//				p.peer_id());
+	//		return Ok(false);
+	//	}
+	//}
+	//if let Some(p) = stale_peer {
+	//	info!("[region {}] destroying stale peer {:?}", region_id, p);
+	//	self.destroy_peer(region_id, p);
+	//	has_peer = false;
+	//}
+
+	//if !has_peer {
+	//	let peer = try!(Peer::replicate(self, region_id, target.get_id()));
+	//	// We don't have start_key of the region, so there is no need to insert into
+	//	// region_ranges
+	//	self.region_peers.insert(region_id, peer);
+	//}
+	return Ok(true);
+}
+
 void Store::on_raft_message(const raft_serverpb::RaftMessage raft){
+	//to_peer字段中的store_id是否是当前store_id
+	if (!this->is_raft_msg_valid(raft)) {
+		LOG_INFO << "on_raft_message is_raft_msg_valid, false, msg:" << raft.DebugString();
+		return;
+	}
+
 	uint64_t region_id = raft.region_id();
 	std::map<uint64_t, Peer* >::iterator it = region_peers.find(region_id);
 	if (it != region_peers.end()){

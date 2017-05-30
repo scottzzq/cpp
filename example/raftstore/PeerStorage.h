@@ -94,6 +94,13 @@ class PeerStorage: public MemStorage{
 		rocksdb::DB* get_db(){
 			return db;
 		}
+
+		const metapb::Region& inmutable_region(){
+			return region;
+		}
+		metapb::Region& mutable_region(){
+			return region;
+		}
 	private:
 		PeerStorage(const PeerStorage& rval);
 		PeerStorage& operator =(const PeerStorage& rval);

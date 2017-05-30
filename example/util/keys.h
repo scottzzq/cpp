@@ -15,14 +15,17 @@
    3、0x03：用来存储 Region 本地的一些元信息，0x03 之后紧跟 Raft Region ID，随后在紧跟一个 Suffix 来表示不同的子类型：
    		0x01：用于存放 RegionLocalState
 */
+const char MIN_KEY[] = {""};
+const char MAX_KEY[] = {0xF, 0xF};
 
 // local is in (0x01, 0x02);
 const char LOCAL_PREFIX = 0x01;
 const char LOCAL_PREFIX_META = 0x02;
 const char LOCAL_PREFIX_REGION = 0x03;
+const char LOCAL_PREFIX_IDENT = 0x04;
 
 // Following keys are all local keys, so the first byte must be 0x01.
-const char STORE_IDENT_KEY[] = {LOCAL_PREFIX, 0x01};
+const char STORE_IDENT_KEY[] = {LOCAL_PREFIX_IDENT, 0x01};
 
 // We save two types region data in DB, for raft and other meta data.
 // When the store starts, we should iterate all region meta data to
@@ -33,8 +36,8 @@ const char REGION_RAFT_PREFIX_KEY[] = {LOCAL_PREFIX_REGION, REGION_RAFT_PREFIX};
 
 const char REGION_META_PREFIX = 0x03;
 const char REGION_META_PREFIX_KEY[] = {LOCAL_PREFIX_META, REGION_META_PREFIX};
-const char REGION_META_MIN_KEY[]  ={LOCAL_PREFIX_META, REGION_META_PREFIX};
-const char REGION_META_MAX_KEY[] = {LOCAL_PREFIX_META, REGION_META_PREFIX + 1};
+const char REGION_META_MIN_KEY[]  ={LOCAL_PREFIX_META, REGION_META_PREFIX, 0};
+const char REGION_META_MAX_KEY[] = {LOCAL_PREFIX_META, REGION_META_PREFIX + 1, 0};
 
 // Following are the suffix after the local prefix.
 // For region id
@@ -45,7 +48,7 @@ const char APPLY_STATE_SUFFIX = 0x03;
 // For region meta
 const char REGION_STATE_SUFFIX =  0x01;
 
-inline std::string store_ident_key();
+std::string store_ident_key();
 
 std::string make_region_id_key(uint64_t region_id, char suffix, uint64_t extra_cap);
 

@@ -24,10 +24,15 @@ using namespace muduo::net;
 void ProtobufCodec::fillEmptyBuffer(Buffer* buf, msgpb::Message message) {
 	assert(buf->readableBytes() == 0);
 	int byte_size = message.ByteSize();
-	buf->appendInt16(0xdaf4);
-	buf->appendInt16(0x01);
-	buf->appendInt32(byte_size);
-	buf->appendInt64(0x01);
+	uint16_t magic_num = 0xdaf4;
+	uint16_t version = 0x01;
+	uint32_t msg_len = byte_size;
+	uint64_t msg_id = 0x01;
+
+	buf->appendInt16(magic_num);
+	buf->appendInt16(version);
+	buf->appendInt32(msg_len);
+	buf->appendInt64(msg_id);
 
 	buf->ensureWritableBytes(byte_size);
 
@@ -90,9 +95,9 @@ void ProtobufCodec::onMessage(const TcpConnectionPtr& conn,
 
 	//LOG_INFO << conn.get() << ": total size:" << buf->readableBytes();
 	while (buf->readableBytes() >= kMinMessageLen) {
-		int16_t be16 = 0;
-		int32_t be32 = 0;
-		int64_t be64 = 0;
+		uint16_t be16 = 0;
+		uint32_t be32 = 0;
+		uint64_t be64 = 0;
 		::memcpy(&be16, buf->peek(), sizeof be16);
 		be16 = sockets::networkToHost16(be16);
 		const uint16_t magic_num = be16;

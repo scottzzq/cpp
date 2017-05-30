@@ -388,6 +388,7 @@ void Raft::tick(){
 }
 
 void Raft::tick_election(){
+	LOG_INFO << "tick_election";
 	this->election_elapsed += 1;
 	if (this->promotable() && this->pass_election_timeout()) {
 		this->election_elapsed = 0;
@@ -397,6 +398,7 @@ void Raft::tick_election(){
 }
 
 void Raft::tick_heartbeat(){
+	LOG_INFO << "tick_heartbeat";
 	this->election_elapsed += 1;
 	this->heartbeat_elapsed += 1;
 	if (this->election_elapsed >= this->randomized_election_timeout){

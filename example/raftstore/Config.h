@@ -14,27 +14,34 @@ class Config {
 		~Config(){
 		}
 
-		uint64_t get_capacity(){
+		inline uint64_t get_capacity() const{
 			return capacity;
 		}
-		uint64_t get_raft_base_tick_interval(){
+		inline uint64_t get_raft_base_tick_interval() const{
 			return raft_base_tick_interval;
 		}
-		uint64_t get_raft_heartbeat_ticks(){
+		inline uint64_t get_raft_heartbeat_ticks() const{
 			return raft_heartbeat_ticks;
 		}
-		uint64_t get_raft_election_timeout_ticks(){
+		inline uint64_t get_raft_election_timeout_ticks() const{
 			return raft_election_timeout_ticks;
 		}
-		uint64_t get_raft_max_size_per_msg(){
+		inline uint64_t get_raft_max_size_per_msg() const{
 			return raft_max_size_per_msg;
 		}
-		uint64_t get_raft_max_inflight_msgs(){
+		inline uint64_t get_raft_max_inflight_msgs() const{
 			return raft_max_inflight_msgs;
 		}
-		uint64_t get_raft_entry_max_size(){
+		inline uint64_t get_raft_entry_max_size() const{
 			return raft_entry_max_size;
 		}
+		inline uint64_t get_pd_heartbeat_tick_interval() const{
+			return pd_heartbeat_tick_interval;
+		}
+		inline uint64_t get_pd_store_heartbeat_tick_interval() const{
+			return pd_store_heartbeat_tick_interval;
+		}
+
 	private:
 		Config(){
 			capacity = INT_MAX;
@@ -44,6 +51,8 @@ class Config {
             raft_max_size_per_msg = RAFT_MAX_SIZE_PER_MSG;
             raft_max_inflight_msgs = RAFT_MAX_INFLIGHT_MSGS;
             raft_entry_max_size = RAFT_ENTRY_MAX_SIZE;
+			pd_heartbeat_tick_interval = PD_HEARTBEAT_TICK_INTERVAL;
+			pd_store_heartbeat_tick_interval = PD_STORE_HEARTBEAT_TICK_INTERVAL;
 		}
 
 		// store capacity.
@@ -59,7 +68,10 @@ class Config {
 		uint64_t raft_max_inflight_msgs;
 		// When the entry exceed the max size, reject to propose it.
 		uint64_t raft_entry_max_size;
-
+		//Region心跳
+		uint64_t pd_heartbeat_tick_interval;
+		//Store心跳 
+		uint64_t pd_store_heartbeat_tick_interval;
 		//// Interval to gc unnecessary raft log (ms).
 		//pub raft_log_gc_tick_interval: u64,
 		//// A threshold to gc stale raft log, must >= 1.
@@ -85,8 +97,6 @@ class Config {
 		///// When delete keys of a region exceeds the size, a compaction will
 		///// be started.
 		//pub region_compact_delete_keys_count: u64,
-		//pub pd_heartbeat_tick_interval: u64,
-		//pub pd_store_heartbeat_tick_interval: u64,
 		//pub snap_mgr_gc_tick_interval: u64,
 		//pub snap_gc_timeout: u64,
 		//pub lock_cf_compact_interval: u64,

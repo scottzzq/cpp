@@ -29,3 +29,6 @@ void StoreClient::onMessage(const muduo::net::TcpConnectionPtr& conn,
 	buf->retrieveAll();
 }
 
+void StoreClient::push_msg(msgpb::Message message){
+	this->msgs.push_back(message);
+}

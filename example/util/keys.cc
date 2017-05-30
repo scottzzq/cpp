@@ -1,7 +1,7 @@
 #include "keys.h"
 
-inline std::string store_ident_key(){
-	return STORE_IDENT_KEY;
+std::string store_ident_key(){
+	return std::string(STORE_IDENT_KEY, 2);
 }
 
 std::string make_region_id_key(uint64_t region_id, char suffix, uint64_t extra_cap){

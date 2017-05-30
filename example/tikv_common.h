@@ -1,5 +1,6 @@
 #ifndef TIKV_COMMON_H
 #define TIKV_COMMON_H
+
 #include <muduo/base/Logging.h>
 #include <stdint.h>
 #include <cstdlib>
@@ -26,6 +27,11 @@ const uint64_t RAFT_ELECTION_TIMEOUT_TICKS = 50;
 const uint64_t RAFT_MAX_SIZE_PER_MSG = 1024 * 1024;
 const uint64_t RAFT_MAX_INFLIGHT_MSGS = 256;
 const uint64_t RAFT_ENTRY_MAX_SIZE = 8 * 1024 * 1024;
+
+//Region心跳
+const uint64_t PD_HEARTBEAT_TICK_INTERVAL = 10000;
+//Store心跳
+const uint64_t PD_STORE_HEARTBEAT_TICK_INTERVAL = 60000;
 
 
 const int RAFT_LOG_COMPACT_ERROR = 1;
@@ -54,4 +60,8 @@ google::protobuf::Message* createMessage(const std::string& typeName) ;
 void write_initial_state(rocksdb::DB* db, rocksdb::WriteBatch& w, uint64_t region_id);
 
 std::string get_uuid_from_req(const raft_cmdpb::RaftCmdRequest& msg);
+
+struct Error{
+	std::string description;
+};
 #endif
