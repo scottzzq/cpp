@@ -114,25 +114,14 @@ metapb::Peer new_peer(uint64_t store_id, uint64_t peer_id) {
     return peer;
 }
 
-metapb::Peer find_peer(metapb::Region region, uint64_t store_id){
-	for (int i = 0; i < region.peers_size(); ++i){
-		metapb::Peer p = region.peers(i);
-		if (p.store_id() == store_id) {
-			return p;
-		}
-	}
-	return metapb::Peer();
-}
-
-Peer::Peer(rocksdb::DB* db, Store* store_, metapb::Region region): db(db), store(store_){	
+Peer::Peer(rocksdb::DB* db, Store* store_, metapb::Region region, uint64_t peer_id): db(db), store(store_){	
 	slash::BaseConf* conf = TiKVConfig::getInstance()->getBaseConf();
 	PeerStorage* ps = new PeerStorage(db, region);
 	this->peer_storage = ps;
 	Config config = Config::getInstance();
 
-	auto p = find_peer(region, store_->get_store_id());
 	RaftConfig raft_conf;
-	raft_conf.id = p.id();
+	raft_conf.id = peer_id;
 	raft_conf.peers = std::vector<uint64_t>();
 	raft_conf.election_tick = config.get_raft_election_timeout_ticks();
 	raft_conf.heartbeat_tick = config.get_raft_heartbeat_ticks();
@@ -149,13 +138,25 @@ Peer::Peer(rocksdb::DB* db, Store* store_, metapb::Region region): db(db), store
 		const metapb::Peer p = region.peers(i);
 		this->peer_cache.insert(std::make_pair(p.id(), p));
 	}
-	this->peer = new_peer(store_->get_store_id(), p.id());
+	this->peer = new_peer(store_->get_store_id(), peer_id);
 	this->region_id = region.id();
 }
 
 Peer::~Peer(){
 }
 
+// The peer can be created from another node with raft membership changes, and we only
+// know the region_id and peer_id when creating this replicated peer, the region info
+// will be retrieved later after applying snapshot.
+// 有peer_id和region_id就可以创建出Peer来
+Peer* Peer::replicate(rocksdb::DB* db_, Store* store_, uint64_t region_id, uint64_t peer_id){
+	// We will remove tombstone key when apply snapshot
+	LOG_INFO << "[region " << region_id << "] replicate peer with id " << peer_id;
+
+	metapb::Region region;
+	region.set_id(region_id);
+	return new Peer(db_, store_, region, peer_id);
+}
 
 PeerStorage* Peer::get_store() {
 	//LOG_INFO << "addr:" << this->peer_storage;
@@ -163,14 +164,6 @@ PeerStorage* Peer::get_store() {
 }
 
 Peer* Peer::create(){
-	return NULL;
-}
-
-// The peer can be created from another node with raft membership changes, and we only
-// know the region_id and peer_id when creating this replicated peer, the region info
-// will be retrieved later after applying snapshot.
-// 有peer_id和region_id就可以创建出Peer来
-Peer* Peer::replicate(){
 	return NULL;
 }
 
@@ -280,6 +273,14 @@ void Peer::send(std::vector<eraftpb::Message>& msgs){
 	}
 }
 
+boost::optional<metapb::Peer> Peer::get_peer_from_cache(uint64_t peer_id){
+	auto it = this->peer_cache.find(peer_id);
+	if (it != this->peer_cache.end()){
+		return it->second;
+	}
+	return this->store->get_peer_from_cache(peer_id);
+}
+
 void Peer::send_raft_message(eraftpb::Message& msg){
 	msgpb::Message send_msg;
 
@@ -293,7 +294,9 @@ void Peer::send_raft_message(eraftpb::Message& msg){
 	eraftpb::Message* m = raft_msg->mutable_message();
 	m->CopyFrom(msg);
 
+	LOG_INFO << "from:" << msg.from();
 	metapb::Peer from_peer = this->get_peer_from_cache(msg.from()).get();
+	LOG_INFO << "to:" << msg.to();
 	metapb::Peer to_peer = this->get_peer_from_cache(msg.to()).get();
 
 	uint64_t to_peer_id = to_peer.id();

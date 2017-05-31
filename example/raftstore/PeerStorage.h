@@ -41,7 +41,7 @@ class PeerStorage: public MemStorage{
 
 		virtual uint64_t first_index() const;
 		virtual uint64_t last_index() const;
-		virtual int term(uint64_t idx, uint64_t& t) const;
+		virtual Result<uint64_t, Error> term(uint64_t idx) const;
 		virtual int entries(uint64_t low, uint64_t high, uint64_t max_size,
 				std::vector<eraftpb::Entry>& log_entries) const;
 

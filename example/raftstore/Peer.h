@@ -81,7 +81,7 @@ class Store;
 
 class Peer{
 	public:
-		Peer(rocksdb::DB* db, Store* store_, metapb::Region r);
+		Peer(rocksdb::DB* db, Store* store_, metapb::Region r, uint64_t peer_id);
 		~Peer();
 		// If we create the peer actively, like bootstrap/split/merge region, we should
 		// use this function to create the peer. The region must contain the peer info
@@ -92,7 +92,7 @@ class Peer{
 		// know the region_id and peer_id when creating this replicated peer, the region info
 		// will be retrieved later after applying snapshot.
 		// 有peer_id和region_id就可以创建出Peer来
-		static Peer* replicate();
+		static Peer* replicate(rocksdb::DB* db_, Store* store_, uint64_t region_id, uint64_t peer_id);
 
 		/// Propose a request.
 		///
@@ -108,14 +108,7 @@ class Peer{
 		void send_raft_message(eraftpb::Message& msg);
 		RawNode* raft_group;
 
-		inline boost::optional<metapb::Peer> get_peer_from_cache(uint64_t peer_id){
-			auto it = this->peer_cache.find(peer_id);
-			if (it != this->peer_cache.end()){
-				return it->second;
-			}
-			return boost::optional<metapb::Peer>(boost::none);
-		}
-
+		boost::optional<metapb::Peer> get_peer_from_cache(uint64_t peer_id);
 		metapb::Region region();
 
 		PeerStorage* get_store();
@@ -157,6 +150,9 @@ class Peer{
 			return this->peer;
 		}
 
+		inline void insert_peer_cache(const metapb::Peer& peer) {
+			this->peer_cache.insert(std::make_pair(peer.id(), peer));
+		}
 	private:
 		Peer& operator= (const Peer& p);
 		Peer(const Peer& p);

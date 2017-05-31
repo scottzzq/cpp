@@ -235,25 +235,25 @@ void Raft::send_append(uint64_t to) {
 	std::map<uint64_t, Progress*>::const_iterator it = this->prs.find(to);
 	if (it != this->prs.end()){
 		Progress* pr = it->second;
-		uint64_t t;
-		int ret = this->raft_log->term(pr->next_idx - 1, t);
-		assert(ret == 0);
-
-		std::vector<eraftpb::Entry> entries = this->raft_log->entries(pr->next_idx, this->max_msg_size);
-		LOG_INFO << "send_append to:" << it->first << " pr->next_idx:" << pr->next_idx << " entries size:" << entries.size(); 
+		auto log_term = this->raft_log->term(pr->next_idx - 1);
+		auto ents = this->raft_log->entries(pr->next_idx, this->max_msg_size);
+		if (ents.isOk())
+			LOG_INFO << "send_append to:" << it->first << " pr->next_idx:" << pr->next_idx << " entries size:" << ents.unwrap().size(); 
 
 		auto m = eraftpb::Message();
 		m.set_to(to);
-		//if term.is_err() || ents.is_err() {
+		if (log_term.isErr() || ents.isErr()) {
+			LOG_INFO << "self.prepare_send_snapshot";
 		//	// send snapshot if we failed to get term or entries
 		//	if !self.prepare_send_snapshot(&mut m, to) {
 		//		return;
 		//	}
-		//} else {
-		this->prepare_send_entries(m, to, t, entries);
-		//}
+		} else {
+			uint64_t t = log_term.unwrap();
+			std::vector<eraftpb::Entry> ens = ents.unwrap();
+			this->prepare_send_entries(m, to, t, ens);
+		}
 		this->send(m);
-		++it;
 	}
 }
 
@@ -445,7 +445,8 @@ void Raft::become_leader(){
 	this->leader_id = id;
 	this->state = StateRole::Leader;
 	uint64_t begin = this->raft_log->committed + 1;
-	std::vector<eraftpb::Entry> ents = this->raft_log->entries(begin, NO_LIMIT);
+	std::vector<eraftpb::Entry> ents = this->raft_log->entries(begin, NO_LIMIT)
+		.expect("unexpected error getting uncommitted entries");
 	auto nconf = this->num_pending_conf(ents);
 	if (nconf > 1) {
 		//TODO
@@ -659,7 +660,7 @@ void Raft::step(eraftpb::Message m){
 					std::vector<eraftpb::Entry> ents = this->raft_log
 						->slice(this->raft_log->applied + 1,
 								this->raft_log->committed + 1,
-								NO_LIMIT);
+								NO_LIMIT).expect("unexpected error getting unapplied entries");
 					uint64_t n = this->num_pending_conf(ents);
 					if (n != 0 && this->raft_log->committed > this->raft_log->applied ){
 						LOG_WARN << this->id << " cannot campaign at term " << this->term 
@@ -988,9 +989,7 @@ void Raft::handle_append_entries(eraftpb::Message& m) {
 		to_send.set_index(idx);
 		this->send(to_send);
 	}else{
-		uint64_t t;
-		int ret = this->raft_log->term(m.index(), t);
-		assert(ret == 0);
+		uint64_t t = this->raft_log->term(m.index()).unwrapOr(0);
 		char log[1024];
 		snprintf(log, sizeof(log), "%s [logterm: %lu, index: %lu] rejected msgApp [logterm: %lu, index: %lu] from %lu",
 				this->tag.c_str(),

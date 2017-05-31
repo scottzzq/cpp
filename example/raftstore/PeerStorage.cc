@@ -320,20 +320,18 @@ uint64_t PeerStorage::truncated_index() const {
 	return this->apply_state.truncated_state().index();
 }
 
-int PeerStorage::term(uint64_t idx, uint64_t& t) const{
+Result<uint64_t, Error> PeerStorage::term(uint64_t idx) const{
 	if (idx == this->truncated_index()) {
-		t = this->truncated_term();
-		return 0;
+		return Ok(this->truncated_term());
 	}
 	int ret = this->check_range(idx, idx + 1);
 	if (ret != 0){
-		LOG_INFO << "check_range error:" << ret;
-		return ret;
+		Error e = {"check_range error:"};
+		return Err(e);
 	}
 	if (this->truncated_term() == this->last_term || idx == this->last_index()) {
-		t = this->last_term;
-		LOG_INFO << "PeerStorage::term, idx:[" << idx << "] " << t;
-		return 0;
+		LOG_INFO << "PeerStorage::term, idx:[" << idx << "] " << this->last_term;
+		return Ok(this->last_term);
 	}
 	std::string key = raft_log_key(this->get_region_id(), idx);
 	std::string value;
@@ -349,16 +347,16 @@ int PeerStorage::term(uint64_t idx, uint64_t& t) const{
 		int32_t dataLen = value.size();
 		if (message->ParseFromArray(data, dataLen)) {
 			auto msg = muduo::down_pointer_cast<eraftpb::Entry>(message);
-			t = msg->term();
 			LOG_INFO << "PeerStorage::term, idx:[" << idx << "] " << msg->DebugString();
-			return 0;
+			return Ok(msg->term());
 		}else{
 			LOG_FATAL << "ParseFromArray Error";
-			exit(1);
-			return PTOTOBUG_PARSER_ERROR;
+			Error e = {"PTOTOBUG_PARSER_ERROR"};
+			return Err(e);
 		}
 	}
-	return STORAGE_ERROR_UNAVABLE;
+	Error e = {"STORAGE_ERROR_UNAVABLE"};
+	return Err(e);
 }
 
 int PeerStorage::check_range(uint64_t low, uint64_t high) const {

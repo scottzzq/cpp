@@ -56,20 +56,21 @@ int MemStorage::entries(uint64_t low, uint64_t high, uint64_t max_size,
 	return 0;
 }
 
-int MemStorage::term(uint64_t idx, uint64_t& t) const {
+Result<uint64_t, Error> MemStorage::term(uint64_t idx) const {
 	for (size_t i = 0; i < this->raft_log_entries.size(); ++i){
 		LOG_INFO << "MemStorage::term:  idx:[" << i << "]" 
 			<< this->raft_log_entries[i].DebugString();
 	}
 	uint64_t offset = this->raft_log_entries[0].index();
 	if (idx < offset) {
-		return RAFT_LOG_COMPACT_ERROR;
+		Error e = {"RAFT_LOG_COMPACT_ERROR"};
+		return Err(e);
 	}
 	if (idx - offset >= this->raft_log_entries.size()){
-		return RAFT_LOG_EMPTY_UNAVABLE;
+		Error e = {"RAFT_LOG_EMPTY_UNAVABLE"};
+		return Err(e);
 	}
-	t = this->raft_log_entries[(idx - offset)].term();
-	return 0;
+	return Ok(this->raft_log_entries[(idx - offset)].term());
 }
 
 uint64_t MemStorage::first_index() const{

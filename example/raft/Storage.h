@@ -3,6 +3,8 @@
 
 #include "eraftpb.pb.h"
 #include <vector>
+#include "tikv_common.h"
+#include "result.h"
 
 struct RaftState {
 	eraftpb::HardState hard_state;
@@ -27,7 +29,7 @@ class Storage {
 		/// [first_index()-1, last_index()]. The term of the entry before
 		/// first_index is retained for matching purpose even though the
 		/// rest of that entry may not be available.
-		virtual int term(uint64_t idx, uint64_t& t) const = 0;
+		virtual Result<uint64_t, Error> term(uint64_t idx) const = 0;
 		/// first_index returns the index of the first log entry that is
 		/// possible available via entries (older entries have been incorporated
 		/// into the latest snapshot; if storage only contains the dummy entry the
@@ -53,7 +55,7 @@ class MemStorage : public Storage{
 		virtual void append(std::vector<eraftpb::Entry>& ents);
 		virtual int entries(uint64_t low, uint64_t high, uint64_t max_size, 
 				std::vector<eraftpb::Entry>& log_entries) const;
-		virtual int term(uint64_t idx, uint64_t& t) const;
+		virtual Result<uint64_t, Error> term(uint64_t idx) const;
 		virtual uint64_t first_index() const;
 		virtual uint64_t last_index() const;
 		//virtual eraftpb::Snapshot snapshot();

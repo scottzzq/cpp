@@ -4,6 +4,7 @@
 #include <muduo/base/Logging.h>
 #include <muduo/net/EventLoop.h>
 #include <muduo/net/EventLoopThread.h>
+#include <boost/optional.hpp>
 #include "metapb.pb.h"
 #include "msgpb.pb.h"
 
@@ -11,6 +12,7 @@
 #include "raft_cmdpb.pb.h"
 #include "result.h"
 #include "tikv_common.h"
+#include "rocksdb/db.h"
 
 class Peer;
 class TiKVServer;
@@ -21,7 +23,7 @@ class Store{
 		typedef boost::function<void()> Functor;
 		typedef boost::function<void(const raft_cmdpb::RaftCmdResponse&)>  ResponseCallback;
 
-		Store(StoreRouter* router, TiKVServer* server, uint64_t store_id);
+		Store(StoreRouter* router, TiKVServer* server, uint64_t store_id, rocksdb::DB* db_);
 		~Store();
 
 		bool init();
@@ -49,6 +51,8 @@ class Store{
 		void propose_raft_command(const raft_cmdpb::RaftCmdRequest& msg, 
 				ResponseCallback callback);
 
+		void insert_peer_cache(const metapb::Peer& peer);
+		boost::optional<metapb::Peer> get_peer_from_cache(uint64_t peer_id);
 		Result<bool, Error> check_target_peer_valid(uint64_t region_id, metapb::Peer target);
 		inline uint64_t region_count(){
 			return region_peers.size();
@@ -70,6 +74,7 @@ class Store{
 		std::string tag;
 		TiKVServer* server;
 		StoreRouter* router;
+		rocksdb::DB* db;
 };
 
 #endif

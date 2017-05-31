@@ -14,6 +14,16 @@ const uint64_t INIT_EPOCH_CONF_VER = 1;
 const size_t MAX_CHECK_CLUSTER_BOOTSTRAPPED_RETRY_COUNT = 60;
 const int CHECK_CLUSTER_BOOTSTRAPPED_RETRY_SECONDS = 3;
 
+boost::optional<metapb::Peer> find_peer(metapb::Region region, uint64_t store_id){
+	for (int i = 0; i < region.peers_size(); ++i){
+		metapb::Peer p = region.peers(i);
+		if (p.store_id() == store_id) {
+			return p;
+		}
+	}
+	return boost::optional<metapb::Peer>(boost::none);
+}
+
 raft_cmdpb::AdminRequest new_change_peer_request(eraftpb::ConfChangeType change_type, const metapb::Peer& peer){
 	raft_cmdpb::AdminRequest req;
 	req.set_cmd_type(raft_cmdpb::AdminCmdType::ChangePeer);
@@ -353,7 +363,7 @@ bool StoreRouter::init(){
 		ss << i;
 		std::string thread_name = "Store-";
 		ss >> thread_name;
-		Store* store = new Store(this, server_, this->store.id());
+		Store* store = new Store(this, server_, this->store.id(), this->db);
 		stores_.push_back(store);
 	}
 
@@ -361,7 +371,6 @@ bool StoreRouter::init(){
 	std::string start_key = REGION_META_MIN_KEY;
 	std::string end_key = REGION_META_MAX_KEY;
 
-	LOG_INFO << "start_key:" << start_key << " end_key:" << end_key;
 	rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
 	it->Seek(start_key);
 	int count = 0;
@@ -406,7 +415,9 @@ bool StoreRouter::init(){
 		uint64_t region_id = regions[i].id();
 		int index = region_id % store_num_;
 		Store* store = stores_[index];
-		Peer* peer = new Peer(db, store, regions[i]);
+		auto p = find_peer(regions[i], store->get_store_id());
+		assert(p);
+		Peer* peer = new Peer(db, store, regions[i], p->id());
 		store->add_peer(region_id, peer);
 	}
 

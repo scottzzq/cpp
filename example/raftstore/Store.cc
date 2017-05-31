@@ -7,12 +7,13 @@
 #include <sstream>
 #include <boost/bind.hpp>
 
-Store::Store(StoreRouter* router_, TiKVServer* server_, uint64_t store_id): 
+Store::Store(StoreRouter* router_, TiKVServer* server_, uint64_t store_id, rocksdb::DB* db_): 
 	store_id_(store_id), server(server_), router(router_){
 	region_peers.clear();
 	pending_raft_groups.clear();
 	pending_regions.clear();
 	peer_cache.clear();
+	this->db = db_;
 }
 
 Store::~Store(){
@@ -52,7 +53,7 @@ void Store::thread_init_func(muduo::net::EventLoop* loop_){
 }
 
 void Store::add_peer(uint64_t region_id, Peer* p){
-	region_peers.insert(std::make_pair(region_id, p));
+	this->region_peers.insert(std::make_pair(region_id, p));
 }
 
 bool Store::init(){
@@ -86,10 +87,10 @@ bool Store::is_raft_msg_valid(const raft_serverpb::RaftMessage& msg) {
 Result<bool, Error> Store::check_target_peer_valid(uint64_t region_id, metapb::Peer target) {
 	// we may encounter a message with larger peer id, which means
 	// current peer is stale, then we should remove current peer
-	//bool has_peer = false;
+	bool has_peer = false;
 	//let mut stale_peer = None;
-	//if let Some(p) = self.region_peers.get_mut(&region_id) {
-	//	has_peer = true;
+	if (this->region_peers.count(region_id) > 0) {
+		has_peer = true;
 	//	let target_peer_id = target.get_id();
 	//	if p.peer_id() < target_peer_id {
 	//		if p.is_applying_snapshot() && !p.mut_store().cancel_applying_snap() {
@@ -111,29 +112,50 @@ Result<bool, Error> Store::check_target_peer_valid(uint64_t region_id, metapb::P
 	//	info!("[region {}] destroying stale peer {:?}", region_id, p);
 	//	self.destroy_peer(region_id, p);
 	//	has_peer = false;
-	//}
+	}
 
-	//if !has_peer {
-	//	let peer = try!(Peer::replicate(self, region_id, target.get_id()));
-	//	// We don't have start_key of the region, so there is no need to insert into
-	//	// region_ranges
-	//	self.region_peers.insert(region_id, peer);
-	//}
+	if (!has_peer) {
+		auto peer = Peer::replicate(this->db, this, region_id, target.id());
+		// We don't have start_key of the region, so there is no need to insert into
+		// region_ranges
+		this->region_peers.insert(std::make_pair(region_id, peer));
+	}
 	return Ok(true);
 }
 
+void Store::insert_peer_cache(const metapb::Peer& peer) {
+	this->peer_cache.insert(std::make_pair(peer.id(), peer));
+}
+
+boost::optional<metapb::Peer> Store::get_peer_from_cache(uint64_t peer_id){
+	auto it = this->peer_cache.find(peer_id);
+	if (it != this->peer_cache.end()){
+		return it->second;
+	}
+	return boost::optional<metapb::Peer>(boost::none);
+}
 void Store::on_raft_message(const raft_serverpb::RaftMessage raft){
 	//to_peer字段中的store_id是否是当前store_id
 	if (!this->is_raft_msg_valid(raft)) {
 		LOG_INFO << "on_raft_message is_raft_msg_valid, false, msg:" << raft.DebugString();
 		return;
 	}
+	//目标Peer是否存在，如果不存在，可能是添加分片的请求，就创建出来Peer来
+	auto check_target_resp = this->check_target_peer_valid(raft.region_id(), raft.to_peer());
+	if (check_target_resp.isErr() || (check_target_resp.isOk() && !check_target_resp.unwrap())) {
+	    return;
+	}
+
+	this->insert_peer_cache(raft.from_peer());
+	this->insert_peer_cache(raft.to_peer());
 
 	uint64_t region_id = raft.region_id();
 	std::map<uint64_t, Peer* >::iterator it = region_peers.find(region_id);
 	if (it != region_peers.end()){
 		Peer* peer = it->second;
 		peer->step(raft.message());
+	}else{
+		LOG_WARN << "Peer is null";
 	}
 }
 

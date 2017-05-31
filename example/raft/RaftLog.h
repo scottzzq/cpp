@@ -5,6 +5,7 @@
 #include "eraftpb.pb.h"
 #include "Unstable.h"
 #include "tikv_common.h"
+#include "result.h"
 
 class Storage;
 
@@ -17,7 +18,7 @@ class RaftLog {
 		uint64_t first_index();
 		uint64_t last_index();
 
-		int term(uint64_t idx, uint64_t& t);
+		Result<uint64_t, Error> term(uint64_t idx);
 		uint64_t last_term();
 
 		const Storage* get_store(){
@@ -64,11 +65,11 @@ class RaftLog {
 		uint64_t append(const google::protobuf::RepeatedPtrField<eraftpb::Entry>& ents, int start);
 		uint64_t append(std::vector<eraftpb::Entry>& es);
 
-		std::vector<eraftpb::Entry> entries(uint64_t idx, uint64_t max_size);
+		Result<std::vector<eraftpb::Entry>, Error> entries(uint64_t idx, uint64_t max_size);
 		std::vector<eraftpb::Entry> all_entries();
 
 		int must_check_outofbounds(uint64_t low, uint64_t high);
-		std::vector<eraftpb::Entry> slice(uint64_t low, uint64_t high, uint64_t max_size);
+		Result<std::vector<eraftpb::Entry>, Error> slice(uint64_t low, uint64_t high, uint64_t max_size);
 
 		// is_up_to_date determines if the given (lastIndex,term) log is more up-to-date
 		// by comparing the index and term of the last entry in the existing logs.

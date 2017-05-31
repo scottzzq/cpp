@@ -44,44 +44,32 @@ uint64_t RaftLog::last_index(){
 	return store->last_index();
 }
 
-int RaftLog::term(uint64_t idx, uint64_t& t) {
+Result<uint64_t, Error> RaftLog::term(uint64_t idx) {
 	// the valid term range is [index of dummy entry, last index]
 	auto dummy_idx = this->first_index() - 1;
 	if (idx < dummy_idx || idx > this->last_index()) {
-		t = 0;
-		return 0;
+		return Ok((uint64_t)0);
 	}
 	if (this->unstable->maybe_term(idx) != INVALID_ID){
-		t = this->unstable->maybe_term(idx);
-		return 0;
+		return Ok(this->unstable->maybe_term(idx));
 	}
-	int ret = store->term(idx, t);
-	LOG_INFO << "RaftLog::term, idx:[" << idx << "] term:[" << t << "]"; 
-	return ret;
+	return store->term(idx);
 }
 
 uint64_t RaftLog::last_term(){
-	uint64_t t = 0;
-	int res = this->term(this->last_index(), t);
-	assert(res == 0);
-	return t;
+	auto res = this->term(this->last_index());
+	assert(res.isOk());
+	return res.unwrap();
 } 
 
 bool RaftLog::match_term(uint64_t idx, uint64_t term) {
-	uint64_t t;
-	if (this->term(idx, t) == 0){
-		if (t == term){
-			return true;
-		}
-	}
-	return false;
+	uint64_t t = this->term(idx).unwrapOr(0);
+	return t == term;
 }
 
 bool RaftLog::maybe_commit(uint64_t max_index, uint64_t term){
 	if (max_index > this->committed) {
-		uint64_t t;
-		int ret = this->term(max_index, t);
-		assert(ret == 0);
+		uint64_t t = this->term(max_index).unwrapOr(0);
 		if (t == term) {
 			this->commit_to(max_index);
 			return true;
@@ -146,10 +134,8 @@ uint64_t RaftLog::find_conflict(const google::protobuf::RepeatedPtrField<eraftpb
 
 		if (!this->match_term(e.index(), e.term())) {
 			if (e.index() <= this->last_index()) {
-				uint64_t t;
-				int ret = this->term(e.index(), t);
 				LOG_INFO << this->tag << " found conflict at index " << e.index() << 
-					", [existing term:"<< t << ", conflicting term:" << e.term() << "]";
+					", [existing term:"<< this->term(e.index()).unwrapOr(0) << ", conflicting term:" << e.term() << "]";
 			}
 			return e.index();
 		}
@@ -225,11 +211,11 @@ uint64_t RaftLog::append(const google::protobuf::RepeatedPtrField<eraftpb::Entry
 	return this->last_index();
 }
 
-std::vector<eraftpb::Entry> RaftLog::entries(uint64_t idx, uint64_t max_size){
+Result<std::vector<eraftpb::Entry>, Error> RaftLog::entries(uint64_t idx, uint64_t max_size){
 	uint64_t last = this->last_index();
 	LOG_INFO << "last:" << last << " idx:" << idx;
 	if (idx > last) {
-		return std::vector<eraftpb::Entry>();
+		return Ok(std::vector<eraftpb::Entry>());
 	}
 	return this->slice(idx, last + 1, max_size);
 }
@@ -265,13 +251,16 @@ int RaftLog::must_check_outofbounds(uint64_t low, uint64_t high) {
 	return 0;
 }
 
-std::vector<eraftpb::Entry> RaftLog::slice(uint64_t low, uint64_t high, uint64_t max_size){
+Result<std::vector<eraftpb::Entry>, Error> RaftLog::slice(uint64_t low, uint64_t high, uint64_t max_size){
 	LOG_INFO << "RaftLog::slice low:" << low << " high:" << high;
 	int check_bound_res = this->must_check_outofbounds(low, high);
-	assert(check_bound_res == 0);
+	if (check_bound_res != 0){
+		Error e = {"must_check_outofbounds error"};
+		return Err(e);
+	}
 	std::vector<eraftpb::Entry> entries;
 	if (low == high) {
-		return entries;
+		return Ok(entries);
 	}
 
 	if (low < this->unstable->offset) {
@@ -283,7 +272,7 @@ std::vector<eraftpb::Entry> RaftLog::slice(uint64_t low, uint64_t high, uint64_t
 		}
 		assert(ret == 0);
 		if (low + entries.size() < std::min(high, this->unstable->offset)) {
-			return entries;
+			return Ok(entries);
 		}
 	}
 
@@ -293,7 +282,7 @@ std::vector<eraftpb::Entry> RaftLog::slice(uint64_t low, uint64_t high, uint64_t
 			entries.push_back(unstable_ents[i]);
 		}
 	}
-	return entries;
+	return Ok(entries);
 }
 
 // is_up_to_date determines if the given (lastIndex,term) log is more up-to-date
@@ -309,7 +298,7 @@ bool RaftLog::is_up_to_date(uint64_t last_index, uint64_t term){
 std::vector<eraftpb::Entry> RaftLog::next_entries(){
 	uint64_t offset = std::max(this->applied + 1, this->first_index());
 	if (this->committed + 1 > offset) {
-		return this->slice(offset, committed + 1, NO_LIMIT);
+		return this->slice(offset, committed + 1, NO_LIMIT).unwrap();
 	}
 	return std::vector<eraftpb::Entry>();
 }
